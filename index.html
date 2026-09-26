@@ -141,6 +141,10 @@ tbody tr:last-child td{border-bottom:none}
 #unitsTable th:nth-child(5),#unitsTable td:nth-child(5){width:150px}
 #unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:110px}
 #unitsTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#unitsTable th.sortable{cursor:pointer;user-select:none}
+#unitsTable th.sortable:hover{color:var(--ink)}
+.sortic{display:inline-block;width:9px;font-size:9px;color:var(--muted);opacity:.4}
+.sortic.active{opacity:1;color:var(--accent)}
 #reportBody tbody td:first-child{font-weight:600;white-space:nowrap}
 #reportBody td{text-align:center;font-family:'IBM Plex Mono',monospace}
 #reportBody td:first-child{text-align:left;font-family:'IBM Plex Sans',sans-serif}
@@ -333,7 +337,12 @@ tbody tr:last-child td{border-bottom:none}
       <div class="tablewrap">
         <table id="unitsTable">
           <thead><tr>
-            <th>Sr</th><th>VIN</th><th>Color</th><th>Stage</th><th>VQ line</th><th>Days in WIP</th>
+            <th class="sortable" data-col="sr">S. No <span class="sortic" data-col="sr"></span></th>
+            <th class="sortable" data-col="vin">VIN <span class="sortic" data-col="vin"></span></th>
+            <th class="sortable" data-col="color">Color <span class="sortic" data-col="color"></span></th>
+            <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
+            <th class="sortable" data-col="vq">VQ line <span class="sortic" data-col="vq"></span></th>
+            <th class="sortable" data-col="wip">Days in WIP <span class="sortic" data-col="wip"></span></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
         </table>
@@ -1012,8 +1021,44 @@ includeBUEl.addEventListener('change', ()=>{
   renderTable();
 });
 
+// ---------- Units table column sorting ----------
+// null sortCol = the original default order (stage, then VIN, then color).
+// Clicking a header sorts by that column; clicking the same one again flips
+// direction instead of picking a third state.
+let sortCol = null;
+let sortDir = 1;
+function updateSortIcons(){
+  document.querySelectorAll('#unitsTable .sortic').forEach(el=>{
+    const col = el.dataset.col;
+    if(col === sortCol){
+      el.textContent = sortDir===1 ? '▲' : '▼';
+      el.classList.add('active');
+    } else {
+      el.textContent = '⇅';
+      el.classList.remove('active');
+    }
+  });
+}
+document.querySelectorAll('#unitsTable th.sortable').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const col = th.dataset.col;
+    if(sortCol === col){ sortDir = -sortDir; } else { sortCol = col; sortDir = 1; }
+    renderTable();
+  });
+});
+
 function stageBadgeHtml(u){
   return `<span class="badge" style="background:color-mix(in srgb, ${u.stage.color} 16%, transparent);color:${u.stage.color}">${u.stage.label}</span>`;
+}
+function vqTesterProgress(u){
+  // -1 for "hasn't reached inspection" so it sorts before/after actual
+  // progress counts (0-12) rather than landing in the middle of them.
+  if(!reachedInspection(u)) return -1;
+  const row = u.vin ? UNIT_ROWS_CACHE[u.vin] : null;
+  const seed = seedChecklist(u.vinSuffix);
+  const state = (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
+  const testerKeys = CHECKLIST_ITEMS.filter(it=>it.group==="tester").map(it=>it.key);
+  return testerKeys.filter(k=>state[k]).length;
 }
 function vqMiniHtml(u){
   if(!reachedInspection(u)) return '<span class="emptynote">&mdash;</span>';
@@ -1047,17 +1092,34 @@ function renderTable(){
     return true;
   });
   const stageOrder = Object.fromEntries(ALL_STAGES.map((s,i)=>[s.code,i]));
-  rows.sort((a,b)=>
-    (stageOrder[a.statusCode]-stageOrder[b.statusCode]) ||
-    (a.vin||'').localeCompare(b.vin||'') ||
-    (a.colorDesc||'').localeCompare(b.colorDesc||'')
-  );
+  if(sortCol){
+    const keyFn = {
+      sr: u=>u.sr,
+      vin: u=>u.vin||'',
+      color: u=>u.colorDesc||u.colorCode||'',
+      stage: u=>stageOrder[u.statusCode],
+      vq: u=>vqTesterProgress(u),
+      wip: u=>u.wipDays==null ? -1 : u.wipDays,
+    }[sortCol];
+    rows.sort((a,b)=>{
+      const ka = keyFn(a), kb = keyFn(b);
+      const cmp = typeof ka==='string' ? ka.localeCompare(kb) : (ka-kb);
+      return cmp * sortDir;
+    });
+  } else {
+    rows.sort((a,b)=>
+      (stageOrder[a.statusCode]-stageOrder[b.statusCode]) ||
+      (a.vin||'').localeCompare(b.vin||'') ||
+      (a.colorDesc||'').localeCompare(b.colorDesc||'')
+    );
+  }
+  updateSortIcons();
   rowcountEl.textContent = rows.length + ' / ' + units.length + ' units in scope';
-  tbody.innerHTML = rows.map(u=>{
+  tbody.innerHTML = rows.map((u,i)=>{
     const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : `<span class="swatch" style="background:transparent;border-style:dashed"></span>`;
     const wip = u.wipDays==null ? '<span class="emptynote">&mdash;</span>' : `<span class="wipdays ${u.wipDays>25?'high':''}">${u.wipDays} d</span>`;
     return `<tr data-vin="${u.vin||''}" data-sr="${u.sr}">
-      <td>${u.sr}</td>
+      <td>${i+1}</td>
       <td>${u.vin ? `<span class="vin">${u.vin}</span>` : `<span class="emptynote">not yet assigned</span>`}</td>
       <td>${swatch}${u.colorCode||'<span class="emptynote">pending</span>'}</td>
       <td>${stageBadgeHtml(u)}</td>
