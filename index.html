@@ -341,7 +341,7 @@ tbody tr:last-child td{border-bottom:none}
       <h2>Defects by unit</h2>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr></thead>
+          <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr></thead>
           <tbody id="defectsByVinBody"></tbody>
         </table>
       </div>
@@ -802,14 +802,28 @@ function xl(n){ if(n==null) return null; return new Date(Date.UTC(1899,11,30) + 
 function fmtDate(d){ if(!d) return "—"; return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
 const TODAY = new Date(); // real "today" in a live deployment, unlike the fixed snapshot date used while this was a static artifact
 
+// Days spent in the unit's CURRENT stage — not days since some fixed ERP
+// reference date. Each status code maps to the date the unit entered that
+// leg (or, for a "done with X, waiting for Y" code, the date it finished
+// the previous leg), so this always reflects time in the bucket shown.
+const STAGE_START_FIELD = {
+  "1000": "bodyStart", "1010": "bodyFin",
+  "2000": "paintStart", "2010": "paintFin",
+  "3000": "tcfStart", "3010": "tcfFin",
+  "4000": "aiInsp", "4010": "afInsp",
+};
+function computeWipDays(statusCode, dates){
+  const field = STAGE_START_FIELD[statusCode];
+  const d = field ? dates[field] : null;
+  if(d == null) return null;
+  return Math.floor((TODAY - xl(d)) / 86400000);
+}
+
 const ALL_UNITS = ROWS.map(r=>{
   const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
   const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
   const vinSuffix = vin ? vin.slice(-6) : null;
-  let wipDays = null;
-  if(vin && statusCode!=="USTK" && bi!=null){
-    wipDays = Math.floor((TODAY - xl(bi)) / 86400000);
-  }
+  const wipDays = vin ? computeWipDays(statusCode, {bodyStart,bodyFin,paintStart,paintFin,tcfStart,tcfFin,aiInsp:ai,afInsp:af}) : null;
   return {sr,vin,vinSuffix,batch,colorCode,colorDesc,statusCode,stage,
     bodyStart:xl(bodyStart), bodyFin:xl(bodyFin),
     paintStart:xl(paintStart), paintFin:xl(paintFin),
@@ -1313,16 +1327,19 @@ function renderAnalysis(){
     tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows));
   });
 
-  // ---- Defects by unit (unchanged: click straight through to that VIN's card) ----
-  document.getElementById('defectsByVinBody').innerHTML = vinRows.map(r=>{
+  // ---- Defects by unit: VIN ascending, with a running S. No. (click straight through to that VIN's card) ----
+  const vinRowsAscending = [...vinRows].sort((a,b)=>
+    (a.u ? a.u.vin : a.vinSuffix).localeCompare(b.u ? b.u.vin : b.vinSuffix));
+  document.getElementById('defectsByVinBody').innerHTML = vinRowsAscending.map((r,i)=>{
     const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
     return `<tr data-vin="${r.u?r.u.vin:''}" data-sr="${r.u?r.u.sr:''}">
+      <td>${i+1}</td>
       <td><span class="vin">${r.u ? r.u.vin : r.vinSuffix}</span></td>
       <td>${swatch}${r.u ? (r.u.colorCode||'') : ''}</td>
       <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
       <td>${r.count}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="4"><div class="emptynote">No defects recorded.</div></td></tr>`;
+  }).join('') || `<tr><td colspan="5"><div class="emptynote">No defects recorded.</div></td></tr>`;
   document.getElementById('defectsByVinBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
     if(!tr.dataset.sr) return;
     tr.style.cursor = 'pointer';
@@ -1506,8 +1523,7 @@ function rebuildAllUnits(){
     const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
     const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
     const vinSuffix = vin ? vin.slice(-6) : null;
-    let wipDays = null;
-    if(vin && statusCode!=="USTK" && bi!=null){ wipDays = Math.floor((TODAY - xl(bi)) / 86400000); }
+    const wipDays = vin ? computeWipDays(statusCode, {bodyStart,bodyFin,paintStart,paintFin,tcfStart,tcfFin,aiInsp:ai,afInsp:af}) : null;
     return {sr,vin,vinSuffix,batch,colorCode,colorDesc,statusCode,stage,
       bodyStart:xl(bodyStart), bodyFin:xl(bodyFin),
       paintStart:xl(paintStart), paintFin:xl(paintFin),
