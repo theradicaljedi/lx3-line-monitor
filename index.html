@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{
   --bg:#eef1f4; --surface:#ffffff; --surface-2:#f6f8fa; --ink:#1a222b; --muted:#5c6b78;
@@ -59,6 +60,12 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .signin-box .desc{margin-bottom:14px}
 .signin-box input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:13px;margin-bottom:8px;background:var(--surface);color:var(--ink)}
 .signin-error{color:var(--bad);font-size:12px;margin-bottom:8px}
+
+.uploadrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.uploadrow:first-of-type{border-top:none}
+.uploadlbl{font-size:13px;font-weight:600;flex:1;min-width:180px}
+.filebtn{position:relative;background:var(--accent);color:#fff;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;overflow:hidden;display:inline-block}
+.filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
 
 .tabbar{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)}
 .tabbtn{background:none;border:none;border-bottom:2px solid transparent;padding:9px 4px;margin-bottom:-1px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;font-family:'IBM Plex Sans',sans-serif}
@@ -215,6 +222,21 @@ tbody tr:last-child td{border-bottom:none}
   <div id="tabRoster">
     <div class="kpis" id="kpis"></div>
 
+    <div class="panel" id="dataAdminPanel" hidden>
+      <h2>Upload data</h2>
+      <div class="desc">Uploading a file <strong>replaces</strong> the current production roster or defect report entirely &mdash; everyone viewing this page sees the new data immediately.</div>
+      <div class="uploadrow">
+        <div class="uploadlbl">LX3 Production Data <span class="emptynote">(LX3 Data.xlsx)</span></div>
+        <label class="filebtn">Choose file<input type="file" id="uploadProduction" accept=".xlsx"></label>
+        <span id="uploadProductionStatus" class="emptynote"></span>
+      </div>
+      <div class="uploadrow">
+        <div class="uploadlbl">LX3 Defect Report <span class="emptynote">(LX3 defect report.xlsx)</span></div>
+        <label class="filebtn">Choose file<input type="file" id="uploadDefects" accept=".xlsx"></label>
+        <span id="uploadDefectsStatus" class="emptynote"></span>
+      </div>
+    </div>
+
     <div class="panel">
       <h2>Monitoring scope <button type="button" class="collapsebtn" id="scopeToggle" aria-expanded="true" aria-controls="scopeBody">&minus;</button></h2>
       <div id="scopeBody">
@@ -322,15 +344,18 @@ const signinPassword = document.getElementById('signinPassword');
 const signinError = document.getElementById('signinError');
 
 function renderAuthArea(){
-  if(!sb){ authAreaEl.innerHTML = ''; return; }
+  const adminPanel = document.getElementById('dataAdminPanel');
+  if(!sb){ authAreaEl.innerHTML = ''; if(adminPanel) adminPanel.hidden = true; return; }
   if(currentSession){
     authAreaEl.innerHTML = `<div class="authuser">${currentSession.user.email} <button type="button" id="signOutBtn">Sign out</button></div>`;
     document.getElementById('signOutBtn').addEventListener('click', async ()=>{ await sb.auth.signOut(); });
     setConnStatus(true, 'Live (Supabase) — signed in');
+    if(adminPanel) adminPanel.hidden = false;
   } else {
     authAreaEl.innerHTML = `<button type="button" class="authbtn" id="signInBtn">Sign in to edit</button>`;
     document.getElementById('signInBtn').addEventListener('click', openSignin);
     setConnStatus(true, 'Live (Supabase) — read-only');
+    if(adminPanel) adminPanel.hidden = true;
   }
 }
 function openSignin(){
@@ -1229,11 +1254,164 @@ function renderReportTable(counts){
 }
 document.getElementById('reportRefresh').addEventListener('click', loadReport);
 
+// =====================================================================
+// ---------- Uploaded data: load from Supabase, and the upload handlers ----------
+// ROWS/DEFECTS/INSPECTED_VINS/ALL_UNITS were declared further up as the
+// 26-Sep-2026 snapshot baked into this file — that stays the fallback shown
+// before the first Supabase fetch resolves, and if Supabase has never been
+// seeded (no upload yet). Once someone uploads a file, these are mutated
+// IN PLACE (never reassigned) so every closure that already captured them
+// keeps working unchanged.
+// =====================================================================
+
+async function loadProductionFromSupabase(){
+  if(!sb) return null;
+  const { data, error } = await sb.from('production_rows').select('*');
+  if(error){ console.error(error); return null; }
+  if(!data || !data.length) return null;
+  data.sort((a,b)=>(a.batch||'').localeCompare(b.batch||''));
+  return data.map((r,i)=>[i+1, r.vin, r.batch, r.color_code, r.color_desc, r.status_code,
+    r.body_fin, r.paint_fin, r.tcf_fin, r.basic_insp, r.actual_insp, r.act_fin_insp, r.ustk]);
+}
+async function loadDefectsFromSupabase(){
+  if(!sb) return null;
+  const { data, error } = await sb.from('defect_rows').select('*');
+  if(error){ console.error(error); return null; }
+  return data; // [] is meaningful here (an uploaded report with zero rows), unlike production
+}
+function rebuildAllUnits(){
+  const mapped = ROWS.map(r=>{
+    const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us] = r;
+    const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
+    const vinSuffix = vin ? vin.slice(-6) : null;
+    let wipDays = null;
+    if(vin && statusCode!=="USTK" && bi!=null){ wipDays = Math.floor((TODAY - xl(bi)) / 86400000); }
+    return {sr,vin,vinSuffix,batch,colorCode,colorDesc,statusCode,stage,
+      bodyFin:xl(bodyFin), paintFin:xl(paintFin), tcfFin:xl(tcfFin),
+      biInsp:xl(bi), aiInsp:xl(ai), afInsp:xl(af), ustk:xl(us), wipDays};
+  });
+  ALL_UNITS.length = 0;
+  ALL_UNITS.push(...mapped);
+}
+async function initData(){
+  const [prodRows, defRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase()]);
+  if(prodRows && prodRows.length){
+    ROWS.length = 0; ROWS.push(...prodRows);
+    rebuildAllUnits();
+  }
+  if(defRows){
+    DEFECTS.length = 0;
+    DEFECTS.push(...defRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial]));
+    INSPECTED_VINS.clear();
+    new Set(defRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
+  }
+  renderAll();
+  if(!tabReportEl.hidden) loadReport();
+  if(!tabAnalysisEl.hidden) renderAnalysis();
+}
+
+// Reads a workbook's first sheet as an array of arrays (row 0 = the file's
+// title row, row 1 = headers, row 2+ = data) — same shape either source
+// file uses, so both parsers below just index into it.
+async function readWorkbookRows(file){
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, {type:'array', raw:true});
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
+}
+
+function wireUpload(inputId, statusId, { validateHeader, parseRow, tableName, deleteFilterCol, buildStatus }){
+  const input = document.getElementById(inputId);
+  const statusEl = document.getElementById(statusId);
+  input.addEventListener('change', async ()=>{
+    const file = input.files[0];
+    input.value = ''; // allow re-choosing the same filename later
+    if(!file) return;
+    if(!sb || !currentSession){ statusEl.textContent = 'Sign in first.'; return; }
+    statusEl.textContent = 'Reading file…';
+    let rows;
+    try{ rows = await readWorkbookRows(file); }
+    catch(e){ statusEl.textContent = 'Could not read this file: ' + e.message; return; }
+    const header = rows[1] || [];
+    if(!validateHeader(header)){
+      statusEl.textContent = "This doesn't look like the expected file — header row didn't match.";
+      return;
+    }
+    const parsed = [];
+    for(let i=2;i<rows.length;i++){
+      const r = parseRow(rows[i]);
+      if(r) parsed.push(r);
+    }
+    if(!parsed.length){ statusEl.textContent = 'No data rows found in this file.'; return; }
+    statusEl.textContent = `Uploading ${parsed.length} rows…`;
+    try{
+      const del = await sb.from(tableName).delete().not(deleteFilterCol, 'is', null);
+      if(del.error) throw del.error;
+      const ins = await sb.from(tableName).insert(parsed);
+      if(ins.error) throw ins.error;
+    }catch(e){
+      statusEl.textContent = 'Upload failed: ' + e.message;
+      return;
+    }
+    statusEl.textContent = 'Loading…';
+    await initData();
+    statusEl.textContent = buildStatus(parsed);
+  });
+}
+
+wireUpload('uploadProduction', 'uploadProductionStatus', {
+  validateHeader: h => (h[7]||'').toString().toUpperCase().includes('VIN'),
+  parseRow: r => {
+    if(!r || !r[4]) return null; // no batch number — not a real data row
+    return {
+      batch: String(r[4]),
+      vin: r[7] || null,
+      color_code: r[11] || null,
+      color_desc: r[13] || null,
+      status_code: r[18] || null,
+      body_fin: r[22] || null,
+      paint_fin: r[25] || null,
+      tcf_fin: r[28] || null,
+      basic_insp: r[29] || null,
+      actual_insp: r[30] || null,
+      act_fin_insp: r[31] || null,
+      ustk: r[32] || null,
+    };
+  },
+  tableName: 'production_rows',
+  deleteFilterCol: 'batch',
+  buildStatus: parsed => `Done — ${parsed.length} units loaded.`,
+});
+
+wireUpload('uploadDefects', 'uploadDefectsStatus', {
+  validateHeader: h => (h[0]||'').toString().toUpperCase().includes('CHASSIS'),
+  parseRow: r => {
+    if(!r || !r[0]) return null; // no VIN — not a real data row
+    const desc = (r[12]||'').toString().trim();
+    const hasDefect = r[13]==='New Defect' && desc && desc!=='.';
+    return {
+      vin: String(r[0]).slice(-6),
+      station: r[11] || null,
+      description: hasDefect ? desc : null,
+      defect_serial: r[10] || null,
+      has_defect: hasDefect,
+    };
+  },
+  tableName: 'defect_rows',
+  deleteFilterCol: 'id',
+  buildStatus: parsed => {
+    const defects = parsed.filter(p=>p.has_defect).length;
+    const units = new Set(parsed.map(p=>p.vin)).size;
+    return `Done — ${defects} defects across ${units} inspected units.`;
+  },
+});
+
 // Wire up auth state here, last — everything onAuthChanged/renderDrawerRow/
 // loadReport/renderAnalysis touch is now guaranteed to already be declared.
 if(sb){
   sb.auth.getSession().then(({data})=>{ currentSession = data.session; renderAuthArea(); });
   sb.auth.onAuthStateChange((event, session)=>{ currentSession = session; onAuthChanged(); });
+  initData();
 }
 </script>
 </body>
