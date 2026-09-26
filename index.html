@@ -171,16 +171,16 @@ tbody tr:last-child td{border-bottom:none}
    centered column — otherwise rows spaced by justify-content:space-between
    stretch edge-to-edge on wide screens, leaving a huge visual gap between
    each label and its value. */
-.drawer-inner{max-width:720px;margin:0 auto}
+.drawer-inner{max-width:640px;margin:0 auto}
 .overlay.open .drawer{transform:translateX(0)}
 .drawer-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .drawer-hdr h2{font-family:'IBM Plex Mono',monospace;font-size:18px;margin:0 0 4px;color:var(--accent)}
 .drawer .closebtn{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--ink)}
-.drawer .metarow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.drawer .metarow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
 .metaitem{background:var(--surface-2);border-radius:8px;padding:8px 10px;font-size:12px;flex:1;min-width:110px}
 .metaitem .k{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
 .metaitem .v{font-weight:600}
-.section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:18px 0 8px}
+.section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:14px 0 6px}
 .section-title.withbtn{display:flex;align-items:center;justify-content:space-between}
 .section-title .linkbtn{display:inline;width:auto;padding:0;font-size:11px;text-transform:none;letter-spacing:normal}
 .timeline{display:flex;flex-direction:column;gap:6px}
@@ -191,16 +191,18 @@ tbody tr:last-child td{border-bottom:none}
 .clearbtn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;line-height:1}
 .clearbtn:hover{color:var(--bad)}
 .checklist{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
-.cgroup{display:flex;justify-content:space-between;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:12px;margin-bottom:6px}
+.cgroup{display:flex;justify-content:space-between;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:10px;margin-bottom:5px}
 .cgroup-count{font-family:'IBM Plex Mono',monospace;color:var(--accent);letter-spacing:0}
 .citem{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:5px 10px 5px 7px;border-radius:20px;background:var(--surface-2);white-space:nowrap}
 .citem .n{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);flex:none}
-.checklist-line{display:grid;grid-template-columns:repeat(12,minmax(72px,1fr));gap:5px}
-.citem.tile{flex-direction:column;justify-content:flex-start;align-items:center;text-align:center;white-space:normal;gap:5px;padding:8px 4px;border-radius:8px;min-height:78px}
+/* 6 across (2 rows of 6 for the 12 tester steps) instead of forcing all 12
+   into one row — 12*72px+gaps needed ~920px, wider than the drawer's own
+   compact column, so it overflowed past the rest of the card's width. */
+.checklist-line{display:grid;grid-template-columns:repeat(6,minmax(60px,1fr));gap:5px}
+.citem.tile{flex-direction:column;justify-content:flex-start;align-items:center;text-align:center;white-space:normal;gap:4px;padding:6px 4px;border-radius:8px;min-height:64px}
 .citem.tile .n{font-size:10px}
 .citem.tile .lbl{font-size:10.5px;line-height:1.2}
-@media(max-width:960px){ .checklist-line{grid-template-columns:repeat(6,minmax(72px,1fr))} }
-@media(max-width:560px){ .checklist-line{grid-template-columns:repeat(3,minmax(72px,1fr))} }
+@media(max-width:560px){ .checklist-line{grid-template-columns:repeat(3,minmax(60px,1fr))} }
 .citem.tappable{cursor:pointer;user-select:none;transition:background .1s}
 .citem.tappable:hover{background:var(--accent-soft)}
 .citem.tappable:active{transform:scale(.98)}
@@ -243,7 +245,7 @@ tbody tr:last-child td{border-bottom:none}
       <h1>LX3 Palisade HEV &mdash; Line Monitor</h1>
     </div>
     <div class="hdr-actions">
-      <button type="button" class="iconbtn" id="scopeBtn" title="Choose which stages count as in-scope">Scope</button>
+      <button type="button" class="iconbtn" id="scopeBtn" title="Choose which stages count as in-scope" hidden>Scope</button>
       <button type="button" class="iconbtn" id="uploadBtn" title="Upload production/defect data" hidden>Upload</button>
       <button type="button" class="iconbtn" id="usersBtn" title="Manage user accounts and roles" hidden>Users</button>
       <div id="authArea"></div>
@@ -368,6 +370,22 @@ tbody tr:last-child td{border-bottom:none}
         <table>
           <thead id="defectDetailHead"></thead>
           <tbody id="defectDetailBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="checklistLogOverlay" class="signin-overlay" hidden>
+    <div class="signin-box detail-box">
+      <div class="signin-hdr">
+        <h3>Completion log</h3>
+        <button type="button" class="closebtn" id="checklistLogClose">&times;</button>
+      </div>
+      <div class="desc" id="checklistLogDesc"></div>
+      <div class="tablewrap detail-tablewrap">
+        <table>
+          <thead><tr><th>Step</th><th>Completed by</th><th>Date</th></tr></thead>
+          <tbody id="checklistLogBody"></tbody>
         </table>
       </div>
     </div>
@@ -528,12 +546,14 @@ const signinPassword = document.getElementById('signinPassword');
 const signinError = document.getElementById('signinError');
 
 function renderAuthArea(){
+  const scopeBtnEl = document.getElementById('scopeBtn');
   const uploadBtnEl = document.getElementById('uploadBtn');
   const usersBtnEl = document.getElementById('usersBtn');
   const authGate = document.getElementById('authGate');
   const mainContent = document.getElementById('mainContent');
   if(!sb){
     authAreaEl.innerHTML = '';
+    if(scopeBtnEl) scopeBtnEl.hidden = false; // no Supabase configured — nothing to gate behind, so no sign-in page either
     if(uploadBtnEl) uploadBtnEl.hidden = true;
     if(usersBtnEl) usersBtnEl.hidden = true;
     authGate.hidden = true; mainContent.hidden = false; // no Supabase configured — nothing to gate behind
@@ -545,6 +565,7 @@ function renderAuthArea(){
     document.getElementById('signOutBtn').addEventListener('click', async ()=>{ await sb.auth.signOut(); });
     document.getElementById('changePasswordBtn').addEventListener('click', openNewPasswordModal);
     setConnStatus(true, 'Live (Supabase) — signed in');
+    if(scopeBtnEl) scopeBtnEl.hidden = false;
     if(uploadBtnEl) uploadBtnEl.hidden = !canWriteNow();
     if(usersBtnEl) usersBtnEl.hidden = currentRole !== 'admin';
     authGate.hidden = true;
@@ -553,6 +574,7 @@ function renderAuthArea(){
     authAreaEl.innerHTML = `<button type="button" class="authbtn" id="signInBtn">Sign in</button>`;
     document.getElementById('signInBtn').addEventListener('click', openSignin);
     setConnStatus(true, 'Live (Supabase) — signed out');
+    if(scopeBtnEl) scopeBtnEl.hidden = true;
     if(uploadBtnEl) uploadBtnEl.hidden = true;
     if(usersBtnEl) usersBtnEl.hidden = true;
     authGate.hidden = false;
@@ -578,6 +600,14 @@ const defectDetailOverlay = document.getElementById('defectDetailOverlay');
 function closeDefectDetail(){ defectDetailOverlay.hidden = true; }
 document.getElementById('defectDetailClose').addEventListener('click', closeDefectDetail);
 defectDetailOverlay.addEventListener('click', e=>{ if(e.target===defectDetailOverlay) closeDefectDetail(); });
+
+// ---------- VQ checklist completion log — hidden until "View log" is
+// clicked on a VIN card; openChecklistLog() itself is defined further down
+// (next to the checklist code it reads CHECKLIST_ITEMS/currentRowData from). ----------
+const checklistLogOverlay = document.getElementById('checklistLogOverlay');
+function closeChecklistLog(){ checklistLogOverlay.hidden = true; }
+document.getElementById('checklistLogClose').addEventListener('click', closeChecklistLog);
+checklistLogOverlay.addEventListener('click', e=>{ if(e.target===checklistLogOverlay) closeChecklistLog(); });
 
 function openDefectDetail(title, desc, mode, rows){
   document.getElementById('defectDetailTitle').textContent = title;
@@ -1439,6 +1469,31 @@ function wireChecklistTaps(container, state, dates, vin){
       if(!ok) touchedEls.forEach(el2=>el2.classList.toggle('on', !turningOn)); // revert on failure
     });
   });
+}
+
+function openChecklistLog(u){
+  document.getElementById('checklistLogDesc').textContent = `${u.vin} — who completed each VQ tester/repair/final-inspection step, and when.`;
+  const dates = (currentRowData && currentRowData.checklist_dates) || {};
+  const rows = CHECKLIST_ITEMS
+    .map(it=>({item: it, entry: dates[it.key]}))
+    .filter(r=>r.entry)
+    // Older rows recorded just a plain date string with no user — support
+    // both shapes rather than losing that history when this shipped.
+    .map(r=>({
+      label: r.item.label,
+      group: CHECKLIST_GROUPS.find(g=>g.key===r.item.group).label,
+      by: (typeof r.entry === 'object' && r.entry.by) ? r.entry.by : null,
+      date: typeof r.entry === 'object' ? r.entry.date : r.entry,
+      ts: (typeof r.entry === 'object' && r.entry.ts) ? r.entry.ts : null,
+    }))
+    .sort((a,b)=> (b.ts||b.date||'').localeCompare(a.ts||a.date||''));
+  const body = document.getElementById('checklistLogBody');
+  body.innerHTML = rows.length ? rows.map(r=>`<tr>
+    <td>${r.label}<div class="emptynote">${r.group}</div></td>
+    <td>${r.by || '<span class="emptynote">Unknown (logged before this feature)</span>'}</td>
+    <td>${fmtDate(new Date(r.date+'T00:00:00Z'))}</td>
+  </tr>`).join('') : '<tr><td colspan="3"><div class="emptynote">No steps completed yet.</div></td></tr>';
+  checklistLogOverlay.hidden = false;
 }
 
 // Body/Paint/TCF out are read straight from LX3 Data.xlsx (Act. fin. date)
