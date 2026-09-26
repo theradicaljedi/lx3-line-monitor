@@ -231,7 +231,11 @@ tbody tr:last-child td{border-bottom:none}
    long scroll. */
 .defectlist{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
 .defectlist.scrollable{max-height:340px;overflow-y:auto;padding-right:4px}
-.defect-row{display:flex;align-items:baseline;gap:9px;background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 6px 6px 0;padding:6px 10px;overflow:hidden}
+/* flex-shrink:0 is the actual fix for the scrollable list: a column flex
+   container that's shorter than its content (max-height:340px cap) shrinks
+   its flex children by default instead of overflowing them, which is what
+   was squashing every row's height and making the text overlap. */
+.defect-row{display:flex;flex-shrink:0;align-items:baseline;gap:9px;background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 6px 6px 0;padding:6px 10px;overflow:hidden}
 .defect-row .dmeta{font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;white-space:nowrap;flex:0 0 auto}
 .defect-row .dtxt{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
 @media(max-width:520px){ .defect-row .dmeta{display:none} }
