@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LX3 Line Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --surface-2:#f6f8fa; --ink:#1a222b; --muted:#5c6b78;
+  --line:#dbe1e7; --accent:#1f5fa8; --accent-soft:#e4edf8;
+  --good:#1c8a4c; --good-soft:#e2f5e9; --warn:#c07a11; --warn-soft:#fbf0dd;
+  --bad:#c23b3b; --bad-soft:#fbe6e6; --plan:#6b7480; --plan-soft:#eceff2;
+  --paint:#8a4fc2; --paint-soft:#f1e7fa; --tcf:#1f5fa8; --tcf-soft:#e4edf8;
+  --shadow: 0 1px 2px rgba(20,30,40,.06), 0 8px 24px -12px rgba(20,30,40,.18);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1418; --surface:#171e24; --surface-2:#1d252c; --ink:#e8edf1; --muted:#93a3b0;
+    --line:#2a343d; --accent:#5b9cec; --accent-soft:#1c2c40;
+    --good:#3fbd77; --good-soft:#123424; --warn:#e0a53d; --warn-soft:#3a2c0f;
+    --bad:#ea6a6a; --bad-soft:#3a1c1c; --plan:#8b96a3; --plan-soft:#232a31;
+    --paint:#b98af0; --paint-soft:#2b1f3a; --tcf:#5b9cec; --tcf-soft:#1c2c40;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1418; --surface:#171e24; --surface-2:#1d252c; --ink:#e8edf1; --muted:#93a3b0;
+  --line:#2a343d; --accent:#5b9cec; --accent-soft:#1c2c40;
+  --good:#3fbd77; --good-soft:#123424; --warn:#e0a53d; --warn-soft:#3a2c0f;
+  --bad:#ea6a6a; --bad-soft:#3a1c1c; --plan:#8b96a3; --plan-soft:#232a31;
+  --paint:#b98af0; --paint-soft:#2b1f3a; --tcf:#5b9cec; --tcf-soft:#1c2c40;
+  --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:14px;line-height:1.45}
+.wrap{max-width:1280px;margin:0 auto;padding:20px 20px 64px}
+.hdr{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+.hdr h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;letter-spacing:.2px;margin:0 0 2px}
+.hdr .sub{color:var(--muted);font-size:13px}
+.hdr .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:6px}
+.connbadge{font-family:'IBM Plex Mono',monospace;font-size:11.5px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 11px;color:var(--muted);box-shadow:var(--shadow);display:flex;align-items:center;gap:6px}
+.connbadge .dot{width:7px;height:7px;border-radius:50%;background:var(--bad)}
+.connbadge.ok .dot{background:var(--good)}
+
+.tabbar{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.tabbtn{background:none;border:none;border-bottom:2px solid transparent;padding:9px 4px;margin-bottom:-1px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;font-family:'IBM Plex Sans',sans-serif}
+.tabbtn+.tabbtn{margin-left:14px}
+.tabbtn:hover{color:var(--ink)}
+.tabbtn.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);cursor:pointer;transition:border-color .12s,transform .12s}
+.kpi:hover{border-color:var(--accent)}
+.kpi:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.kpi.active{border-color:var(--accent);border-width:2px;box-shadow:0 0 0 3px var(--accent-soft)}
+.kpi .n{font-family:'Oswald',sans-serif;font-size:30px;font-weight:600;line-height:1}
+.kpi .l{color:var(--muted);font-size:12px;margin-top:4px;text-transform:uppercase;letter-spacing:.06em}
+.kpi.accent .n{color:var(--accent)}
+.kpi.good .n{color:var(--good)}
+.kpi.warn .n{color:var(--warn)}
+.kpi.plan .n{color:var(--plan)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px 18px;margin-bottom:16px}
+.panel h2{font-family:'Oswald',sans-serif;font-size:15px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin:0 0 2px;display:flex;align-items:center;gap:8px}
+.panel .desc{color:var(--muted);font-size:12px;margin-bottom:14px}
+.collapsebtn{margin-left:auto;width:22px;height:22px;line-height:1;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.collapsebtn:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+
+.stagepicker{display:flex;flex-wrap:wrap;gap:8px}
+.stagepicker label{display:flex;align-items:center;gap:6px;font-size:12.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:20px;padding:6px 12px 6px 10px;cursor:pointer;user-select:none}
+.stagepicker label.off{opacity:.55}
+.stagepicker input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+.stagepicker .swal{margin-left:auto;background:none;border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:12px;color:var(--muted);cursor:pointer}
+
+.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+.toolbar input[type=search]{flex:1;min-width:180px;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
+.toolbar select{padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
+.toolbar .count{color:var(--muted);font-size:12.5px;margin-left:auto}
+
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:820px}
+thead th{position:sticky;top:0;background:var(--surface-2);text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:9px 10px;border-bottom:1px solid var(--line)}
+tbody td{padding:9px 10px;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+tbody tr{cursor:pointer;transition:background .1s}
+tbody tr:hover{background:var(--surface-2)}
+tbody tr:last-child td{border-bottom:none}
+.reporttotalcell{font-weight:700;font-family:'IBM Plex Mono',monospace;background:var(--surface-2)}
+#reportBody tbody td:first-child{font-weight:600;white-space:nowrap}
+#reportBody td{text-align:center;font-family:'IBM Plex Mono',monospace}
+#reportBody td:first-child{text-align:left;font-family:'IBM Plex Sans',sans-serif}
+.vin{font-family:'IBM Plex Mono',monospace;font-weight:600;color:var(--accent)}
+.swatch{display:inline-block;width:14px;height:14px;border-radius:4px;border:1px solid var(--line);vertical-align:-2px;margin-right:7px}
+.badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.wipdays{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+.wipdays.high{color:var(--bad);font-weight:700}
+.vqmini{display:flex;gap:3px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
+.dot.on{background:var(--good)}
+
+.overlay{position:fixed;inset:0;background:var(--surface);z-index:50;opacity:0;pointer-events:none;transition:opacity .18s}
+.overlay.open{opacity:1;pointer-events:auto}
+.drawer{width:100%;height:100%;background:var(--surface);transform:translateX(100%);transition:transform .22s ease;overflow-y:auto;padding:20px env(safe-area-inset-right,0px) 40px 20px}
+.drawer-inner{max-width:none}
+.overlay.open .drawer{transform:translateX(0)}
+.drawer-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+.drawer-hdr h2{font-family:'IBM Plex Mono',monospace;font-size:18px;margin:0 0 4px;color:var(--accent)}
+.drawer .closebtn{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--ink)}
+.drawer .metarow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.metaitem{background:var(--surface-2);border-radius:8px;padding:8px 10px;font-size:12px;flex:1;min-width:110px}
+.metaitem .k{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.metaitem .v{font-weight:600}
+.section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:18px 0 8px}
+.timeline{display:flex;flex-direction:column;gap:6px}
+.trow{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;padding:6px 8px;border-radius:6px;background:var(--surface-2)}
+.trow .d{font-family:'IBM Plex Mono',monospace;color:var(--muted);display:flex;align-items:center;gap:6px}
+.markbtn{background:var(--accent);color:#fff;border:none;border-radius:20px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer}
+.markbtn:disabled{opacity:.5;cursor:default}
+.clearbtn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;line-height:1}
+.clearbtn:hover{color:var(--bad)}
+.checklist{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.cgroup{display:flex;justify-content:space-between;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:12px;margin-bottom:6px}
+.cgroup-count{font-family:'IBM Plex Mono',monospace;color:var(--accent);letter-spacing:0}
+.citem{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:5px 10px 5px 7px;border-radius:20px;background:var(--surface-2);white-space:nowrap}
+.citem .n{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);flex:none}
+.checklist-line{display:grid;grid-template-columns:repeat(12,minmax(72px,1fr));gap:5px}
+.citem.tile{flex-direction:column;justify-content:flex-start;align-items:center;text-align:center;white-space:normal;gap:5px;padding:8px 4px;border-radius:8px;min-height:78px}
+.citem.tile .n{font-size:10px}
+.citem.tile .lbl{font-size:10.5px;line-height:1.2}
+@media(max-width:960px){ .checklist-line{grid-template-columns:repeat(6,minmax(72px,1fr))} }
+@media(max-width:560px){ .checklist-line{grid-template-columns:repeat(3,minmax(72px,1fr))} }
+.citem.tappable{cursor:pointer;user-select:none;transition:background .1s}
+.citem.tappable:hover{background:var(--accent-soft)}
+.citem.tappable:active{transform:scale(.98)}
+.citem .d{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+.citem.on .d{background:var(--good)}
+.citem.on{color:var(--ink)}
+.citem:not(.on){color:var(--muted)}
+.novq{font-size:12.5px;color:var(--muted);background:var(--surface-2);padding:10px;border-radius:8px}
+
+.issuelist{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.issue{background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 8px 8px 0;padding:8px 10px}
+.issue .meta{font-size:10.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:3px}
+.issue .txt{font-size:13px}
+.issueform textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-family:inherit;font-size:12.5px;resize:vertical;min-height:56px;background:var(--surface);color:var(--ink)}
+.issueform input[type=text]{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:12.5px;margin-bottom:6px;background:var(--surface);color:var(--ink)}
+.issueform button{margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer}
+.issueform button:disabled{opacity:.5;cursor:default}
+.emptynote{font-size:12px;color:var(--muted);font-style:italic}
+.foot{color:var(--muted);font-size:11.5px;margin-top:22px;text-align:center}
+@media(max-width:640px){
+  .citem:not(.tile){flex:1 1 100%}
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="hdr">
+    <div>
+      <div class="eyebrow">HNMPL</div>
+      <h1>LX3 Palisade HEV &mdash; Line Monitor</h1>
+    </div>
+    <div class="connbadge" id="connBadge"><span class="dot"></span><span id="connText">Connecting&hellip;</span></div>
+  </div>
+
+  <div class="tabbar" id="tabbar">
+    <button type="button" class="tabbtn active" data-tab="roster">Unit Roster</button>
+    <button type="button" class="tabbtn" data-tab="report">Production Report</button>
+  </div>
+
+  <div id="tabRoster">
+    <div class="kpis" id="kpis"></div>
+
+    <div class="panel">
+      <h2>Monitoring scope <button type="button" class="collapsebtn" id="scopeToggle" aria-expanded="true" aria-controls="scopeBody">&minus;</button></h2>
+      <div id="scopeBody">
+        <div class="desc">Choose which Excel Status Text stages count as "in monitoring" &mdash; drives the top tiles and the roster below</div>
+        <div class="stagepicker" id="stagePicker"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Unit roster</h2>
+      <div class="toolbar">
+        <input type="search" id="search" placeholder="Search VIN or batch&hellip;">
+        <select id="stageFilter"></select>
+        <select id="colorFilter"></select>
+        <span class="count" id="rowcount"></span>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th>Sr</th><th>VIN</th><th>Color</th><th>Stage</th><th>VQ line</th><th>Days in WIP</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="tabReport" hidden>
+    <div class="panel">
+      <h2>Production report <button type="button" class="collapsebtn" id="reportRefresh" title="Refresh">&#8635;</button></h2>
+      <div id="reportBody"><div class="emptynote">Loading&hellip;</div></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="drawer" id="drawer"></div>
+</div>
+
+<script>
+// =====================================================================
+// Supabase connection — fill these in from your Supabase project
+// (Project Settings > API). Both values are meant to be public/client-side;
+// access control is enforced by the Row Level Security policies in
+// supabase_schema.sql, not by keeping this key secret.
+// =====================================================================
+const SUPABASE_URL = "https://lkkbuitmdbgmwribdhwl.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxra2J1aXRtZGJnbXdyaWJkaHdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0MDgwOTcsImV4cCI6MjEwNTk4NDA5N30.R4OaAwDHxTeo-MD7br1cKWDL_kkSdLJX2Yvk8qTNMGE";
+
+const sb = (SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20)
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
+
+const connBadge = document.getElementById('connBadge');
+const connText = document.getElementById('connText');
+function setConnStatus(ok, label){
+  connBadge.classList.toggle('ok', ok);
+  connText.textContent = label;
+}
+if(!sb){
+  setConnStatus(false, 'Supabase not configured — edit index.html');
+} else {
+  setConnStatus(true, 'Live (Supabase)');
+}
+</script>
+
+<script>
+// ---------- raw data ----------
+// [sr, vin, batch, colorCode, colorDesc, statusCode, bodyFin, paintFin, tcfFin, biInsp, aiInsp, afInsp, ustk]
+// Source: LX3 Data.xlsx (added 26-Sep-2026) — supersedes EXPORT_20260926_095113.xlsx,
+// which never carried Body/Paint/TCF actual finish dates for this batch.
+const ROWS = [
+[1,"PMHRM81ASTN900001","LX000101","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
+[2,"PMHRM81ASTN900002","LX000102","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
+[3,"PMHRM81ASTN900003","LX000103","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269],
+[4,"PMHRM81ASTN900004","LX000104","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269],
+[5,"PMHRM81ASTN900005","LX000105","NBA","Phantom Black","4010",46259,46259,46259,46259,46259,46265,null],
+[6,"PMHRM81ASTN900006","LX000106","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
+[7,"PMHRM81ASTN900007","LX000107","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
+[8,"PMHRM81ASTN900008","LX000108","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269],
+[9,"PMHRM81ASTN900009","LX000109","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269],
+[10,"PMHRM81ASTN900010","LX000110","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46268,46269],
+[11,"PMHRM81ASTN900011","LX000111","R8N","Robust Emerald Green","USTK",46259,46259,46269,46259,46280,46282,46282],
+[12,"PMHRM81ASTN900012","LX000112","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46267,46269],
+[13,"PMHRM81ASTN900013","LX000113","WYW","Polar White.","USTK",46259,46259,46259,46259,46261,46269,46272],
+[14,"PMHRM81ASTN900014","LX000114","WYW","Polar White.","USTK",46259,46259,46259,46259,46266,46272,46272],
+[15,"PMHRM81ASTN900015","LX000115","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46269,46269],
+[16,"PMHRM81ASTN900016","LX000116","SMH","Silver Metallic","USTK",46259,46259,46259,46259,46259,46269,46269],
+[17,"PMHRM81ASTN900017","LX000117","NT2","Hampton Gray","USTK",46259,46259,46259,46259,46260,46269,46272],
+[18,"PMHRM81ASTN900018","LX000118","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272],
+[19,"PMHRM81ASTN900019","LX000119","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272],
+[20,"PMHRM81ASTN900020","LX000120","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
+[21,"PMHRM81ASTN900021","LX000121","R8N","Robust Emerald Green","3010",46259,46259,46275,46259,null,null,null],
+[22,"PMHRM81ASTN900022","LX000122","NBA","Phantom Black","USTK",46259,46259,46259,46259,46267,46269,46272],
+[23,"PMHRM81ASTN900023","LX000123","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46269,46272],
+[24,"PMHRM81ASTN900024","LX000124","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46268,46272],
+[25,"PMHRM81ASTN900025","LX000125","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272],
+[26,"PMHRM81ASTN900026","LX000126","NBA","Phantom Black","USTK",46259,46259,46259,46259,46269,46272,46272],
+[27,"PMHRM81ASTN900027","LX000127","NBA","Phantom Black","USTK",46259,46259,46259,46259,46269,46272,46272],
+[28,"PMHRM81ASTN900028","LX000128","NBA","Phantom Black","USTK",46259,46259,46259,46259,46261,46269,46272],
+[29,"PMHRM81ASTN900029","LX000129","WYW","Polar White.","USTK",46259,46259,46269,46259,46272,46273,46273],
+[30,"PMHRM81ASTN900030","LX000130","WYW","Polar White.","USTK",46259,46259,46269,46259,46272,46272,46273],
+[31,"PMHRM81ASTN900091","LX000201","WYW","Polar White.","4010",46280,46281,46289,46280,46289,46290,null],
+[32,"PMHRM81ASTN900092","LX000202","WYW","Polar White.","4010",46281,46282,46289,46280,46289,46290,null],
+[33,"PMHRM81ASTN900093","LX000203","NBA","Phantom Black","4010",46283,46286,46289,46280,46290,46290,null],
+[34,"PMHRM81ASTN900094","LX000204","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null],
+[35,"PMHRM81ASTN900095","LX000205","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null],
+[36,"PMHRM81ASTN900096","LX000206","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null],
+[37,"PMHRM81ASTN900097","LX000207","NBA","Phantom Black","4000",46283,46283,46289,46282,46289,null,null],
+[38,"PMHRM81ASTN900098","LX000208","NBA","Phantom Black","3010",46287,46288,46289,46282,null,null,null],
+[39,"PMHRM81ASTN900099","LX000209","R8N","Robust Emerald Green","3010",46287,46288,46289,46287,null,null,null],
+[40,"PMHRM81ASTN900100","LX000210","WYW","Polar White.","4010",46287,46287,46289,46287,46289,46290,null],
+[41,"PMHRM81ASTN900101","LX000211","WYW","Polar White.","4010",46287,46287,46289,46287,46289,46289,null],
+[42,"PMHRM81ASTN900102","LX000212","WYW","Polar White.","4000",46287,46287,46289,46287,46289,null,null],
+[43,"PMHRM81ASTN900103","LX000213","NBA","Phantom Black","3010",46287,46287,46289,46287,null,null,null],
+[44,"PMHRM81ASTN900104","LX000214","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
+[45,"PMHRM81ASTN900105","LX000215","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
+[46,"PMHRM81ASTN900106","LX000216","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null],
+[47,"PMHRM81ASTN900107","LX000217","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null],
+[48,"PMHRM81ASTN900108","LX000218","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
+[49,"PMHRM81ASTN900109","LX000219","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null],
+[50,"PMHRM81ASTN900110","LX000220","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null],
+[51,"PMHRM81ASTN900111","LX000221","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
+[52,"PMHRM81ASTN900112","LX000222","NBA","Phantom Black","4010",46287,46288,46289,46287,46290,46290,null],
+[53,"PMHRM81ASTN900113","LX000223","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
+[54,"PMHRM81ASTN900114","LX000224","WYW","Polar White.","4000",46287,46288,46289,46287,46290,null,null],
+[55,"PMHRM81ASTN900115","LX000225","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null],
+[56,"PMHRM81ASTN900116","LX000226","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null],
+[57,"PMHRM81ASTN900117","LX000227","NBA","Phantom Black","4010",46287,46288,46289,46287,46290,46290,null],
+[58,"PMHRM81ASTN900118","LX000228","NBA","Phantom Black","3010",46287,46288,46289,46287,null,null,null],
+[59,"PMHRM81ASTN900119","LX000229","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
+[60,"PMHRM81ASTN900120","LX000230","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null],
+[61,"PMHRM81ASTN900121","LX000301","WYW","Polar White.","3010",46288,46288,46289,46288,null,null,null],
+[62,"PMHRM81ASTN900122","LX000302","WYW","Polar White.","2010",46290,46290,null,46288,null,null,null],
+[63,"PMHRM81ASTN900123","LX000303","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null],
+[64,"PMHRM81ASTN900124","LX000304",null,null,"2000",46290,null,null,46288,null,null,null],
+[65,"PMHRM81ASTN900125","LX000305","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null],
+[66,"PMHRM81ASTN900126","LX000306",null,null,"2000",46290,null,null,46288,null,null,null],
+[67,"PMHRM81ASTN900127","LX000307",null,null,"2000",46290,null,null,46288,null,null,null],
+[68,"PMHRM81ASTN900128","LX000308",null,null,"2000",46290,null,null,46288,null,null,null],
+[69,"PMHRM81ASTN900129","LX000309",null,null,"2000",46290,null,null,46288,null,null,null],
+[70,"PMHRM81ASTN900130","LX000310","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null],
+[71,"PMHRM81ASTN900131","LX000311","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null],
+[72,"PMHRM81ASTN900132","LX000312",null,null,"2000",46290,null,null,46288,null,null,null],
+[73,null,"LX000313",null,null,"PLAN",null,null,null,46288,null,null,null],
+[74,null,"LX000314",null,null,"PLAN",null,null,null,46288,null,null,null],
+[75,null,"LX000315",null,null,"PLAN",null,null,null,46288,null,null,null],
+[76,null,"LX000316",null,null,"PLAN",null,null,null,46291,null,null,null],
+[77,null,"LX000317",null,null,"PLAN",null,null,null,46291,null,null,null],
+[78,null,"LX000318",null,null,"PLAN",null,null,null,46291,null,null,null],
+[79,null,"LX000319",null,null,"PLAN",null,null,null,46291,null,null,null],
+[80,null,"LX000320",null,null,"PLAN",null,null,null,46291,null,null,null],
+];
+
+// Seed data for the VQ checklist, taken from the 25-Sep-2026 PDF sheet, keyed
+// by the unit's 6-digit VIN suffix (e.g. "900094"). Once a viewer taps an item
+// in a unit's card the live, shared value in Supabase takes over from this.
+const FULL12 = new Set(["900091","900092","900097","900100","900102","900109","900116","900117","900093","900101"]);
+const REPAIR_DONE = new Set(["900093","900101"]); // Overall Repairing: TCF/BS/PS
+const FINAL_PARTIAL = { "900101": {insp:true,repair:true,qcOk:true,water:true,init1000:true,pdi:false} };
+const REMARKS = { "900101": "QC OK" };
+
+// The 21 sub-stage items, grouped exactly as the shop floor tracks them. These
+// only apply once a unit reaches Inspection In — that's what "kicks them on".
+const CHECKLIST_ITEMS = [
+  {key:"lineIn", label:"Line IN", group:"tester"},
+  {key:"lineOff", label:"Line OFF", group:"tester"},
+  {key:"preWheel", label:"Pre wheel alignment", group:"tester"},
+  {key:"wheel", label:"Wheel alignment", group:"tester"},
+  {key:"sideSlip", label:"Side slip & H/lamp aiming", group:"tester"},
+  {key:"brake", label:"Brake test & R&B test", group:"tester"},
+  {key:"interior", label:"Interior inspection", group:"tester"},
+  {key:"underbody", label:"Underbody inspection", group:"tester"},
+  {key:"engineRoom", label:"Engine room inspection", group:"tester"},
+  {key:"adas", label:"ADAS calibration", group:"tester"},
+  {key:"exterior", label:"Exterior inspection", group:"tester"},
+  {key:"dynamic", label:"Dynamic test", group:"tester"},
+  {key:"tcf", label:"TCF", group:"repair"},
+  {key:"bs", label:"BS (body side)", group:"repair"},
+  {key:"ps", label:"PS (paint side)", group:"repair"},
+  {key:"insp", label:"Inspection", group:"final"},
+  {key:"repair", label:"Repair", group:"final"},
+  {key:"qcOk", label:"QC OK", group:"final"},
+  {key:"water", label:"Water leak test", group:"final"},
+  {key:"init1000", label:"Initial 1,000 insp.", group:"final"},
+  {key:"pdi", label:"PDI OK", group:"final"},
+];
+const CHECKLIST_GROUPS = [
+  {key:"tester", label:"VQ tester line process"},
+  {key:"repair", label:"Overall repair status"},
+  {key:"final", label:"VQ final inspection status"},
+];
+
+function seedChecklist(vinSuffix){
+  const full = FULL12.has(vinSuffix);
+  const repair = REPAIR_DONE.has(vinSuffix);
+  const final = FINAL_PARTIAL[vinSuffix] || null;
+  const state = {};
+  CHECKLIST_ITEMS.forEach(it=>{ state[it.key] = false; });
+  if(full){ state.lineIn = true; state.lineOff = true; state.preWheel = true; state.wheel = true;
+    state.sideSlip = true; state.brake = true; state.interior = true; state.underbody = true;
+    state.engineRoom = true; state.adas = true; state.exterior = true; state.dynamic = true; }
+  else { state.lineIn = true; } // every unit that reached the line at least cleared Line IN
+  if(repair){ state.tcf = true; state.bs = true; state.ps = true; }
+  if(final){ Object.assign(state, final); }
+  return state;
+}
+// A unit's sub-stage tracker only starts once it's reached Inspection In.
+function reachedInspection(u){ return ["4000","4010","USTK"].includes(u.statusCode); }
+
+// All Excel Status Text stages in process order. The checkboxes above let the
+// viewer choose which of these count as "in monitoring" (funnel/roster/VQ panels);
+// the top KPI tiles always show every stage's true count regardless of this choice.
+const ALL_STAGES = [
+  {code:"PLAN", label:"Planning", color:"var(--plan)"},
+  {code:"2000", label:"Paint in", color:"var(--paint)"},
+  {code:"2010", label:"Paint out", color:"var(--paint)"},
+  {code:"3000", label:"TCF in", color:"var(--plan)"},
+  {code:"3010", label:"TCF Out", color:"var(--tcf)"},
+  {code:"4000", label:"Inspection in", color:"var(--warn)"},
+  {code:"4010", label:"QC OK / PDI pending", color:"var(--warn)"},
+  {code:"USTK", label:"BU Stock", color:"var(--good)"},
+];
+const DEFAULT_INCLUDED = new Set(["3010","4000","4010","USTK"]);
+
+function loadIncluded(){
+  try{
+    const raw = JSON.parse(localStorage.getItem('lx3_included_stages') || 'null');
+    if(Array.isArray(raw) && raw.length && raw.every(c=>ALL_STAGES.some(s=>s.code===c))){
+      return new Set(raw);
+    }
+  }catch(e){}
+  return new Set(DEFAULT_INCLUDED);
+}
+function saveIncluded(set){
+  try{ localStorage.setItem('lx3_included_stages', JSON.stringify([...set])); }catch(e){}
+}
+let included = loadIncluded();
+
+const COLOR_HEX = {
+  "NBA":"#1c1d21","WYW":"#f6f6f2","R8N":"#1f4d3a","SMH":"#b9bcbe","NT2":"#6e7276"
+};
+
+function xl(n){ if(n==null) return null; return new Date(Date.UTC(1899,11,30) + n*86400000); }
+function fmtDate(d){ if(!d) return "—"; return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+const TODAY = new Date(); // real "today" in a live deployment, unlike the fixed snapshot date used while this was a static artifact
+
+const ALL_UNITS = ROWS.map(r=>{
+  const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us] = r;
+  const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
+  const vinSuffix = vin ? vin.slice(-6) : null;
+  let wipDays = null;
+  if(vin && statusCode!=="USTK" && bi!=null){
+    wipDays = Math.floor((TODAY - xl(bi)) / 86400000);
+  }
+  return {sr,vin,vinSuffix,batch,colorCode,colorDesc,statusCode,stage,
+    bodyFin:xl(bodyFin), paintFin:xl(paintFin), tcfFin:xl(tcfFin),
+    biInsp:xl(bi), aiInsp:xl(ai), afInsp:xl(af), ustk:xl(us), wipDays};
+});
+
+function currentUnits(){
+  return ALL_UNITS.filter(u=>included.has(u.statusCode));
+}
+
+// ---------- KPIs (top tiles) — driven by the Monitoring scope checkboxes, and clickable to filter the roster ----------
+const stageCount = code => ROWS.filter(r=>r[5]===code).length;
+const kpisEl = document.getElementById('kpis');
+const KPI_CLS = {PLAN:"plan", "2000":"plan", "2010":"plan", "3000":"plan", "3010":"accent", "4000":"warn", "4010":"warn", USTK:"good"};
+// null = no tile filter (roster shows everything in scope); "WIP" = the WIP tile; or a stage code.
+let tileFilter = null;
+function setTileFilter(code){
+  tileFilter = code;
+  stageFilterEl.value = (code && code!=="WIP") ? code : "";
+  renderKPIs();
+  renderTable();
+}
+function renderKPIs(){
+  const includedStageDefs = ALL_STAGES.filter(s=>included.has(s.code));
+  const totalInScope = includedStageDefs.reduce((sum,s)=>sum+stageCount(s.code), 0);
+  const wipInScope = includedStageDefs.filter(s=>s.code!=="PLAN" && s.code!=="USTK").reduce((sum,s)=>sum+stageCount(s.code), 0);
+  const tiles = [
+    {n:totalInScope, l:"Total units (in scope)", cls:"", filter:null},
+    {n:wipInScope, l:"WIP (in scope)", cls:"warn", filter:"WIP"},
+    ...includedStageDefs.map(s=>({n:stageCount(s.code), l:s.label, cls:KPI_CLS[s.code]||"", filter:s.code})),
+  ];
+  kpisEl.innerHTML = tiles.length
+    ? tiles.map(k=>{
+        const active = tileFilter===k.filter;
+        return `<div class="kpi ${k.cls}${active?' active':''}" data-filter="${k.filter??''}" tabindex="0" role="button" aria-pressed="${active}">
+          <div class="n">${k.n}</div><div class="l">${k.l}</div>
+        </div>`;
+      }).join('')
+    : '<div class="emptynote">No stages selected in Monitoring scope below.</div>';
+  kpisEl.querySelectorAll('.kpi').forEach(el=>{
+    const code = el.dataset.filter || null;
+    el.addEventListener('click', ()=>setTileFilter(code));
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); setTileFilter(code); } });
+  });
+}
+
+// ---------- stage picker ----------
+const stagePickerEl = document.getElementById('stagePicker');
+const scopeBodyEl = document.getElementById('scopeBody');
+const scopeToggleBtn = document.getElementById('scopeToggle');
+let scopeCollapsed = (()=>{ try{ return localStorage.getItem('lx3_scope_collapsed')==='1'; }catch(e){ return false; } })();
+function applyScopeCollapsed(){
+  scopeBodyEl.hidden = scopeCollapsed;
+  scopeToggleBtn.textContent = scopeCollapsed ? '+' : '−';
+  scopeToggleBtn.setAttribute('aria-expanded', String(!scopeCollapsed));
+}
+scopeToggleBtn.addEventListener('click', ()=>{
+  scopeCollapsed = !scopeCollapsed;
+  try{ localStorage.setItem('lx3_scope_collapsed', scopeCollapsed?'1':'0'); }catch(e){}
+  applyScopeCollapsed();
+});
+applyScopeCollapsed();
+
+function renderStagePicker(){
+  stagePickerEl.innerHTML = ALL_STAGES.map(s=>{
+    const c = ROWS.filter(r=>r[5]===s.code).length;
+    const on = included.has(s.code);
+    return `<label class="${on?'':'off'}"><input type="checkbox" data-code="${s.code}" ${on?'checked':''}> ${s.label} (${c})</label>`;
+  }).join('') + `<button type="button" class="swal" id="resetScope">Reset to default</button>`;
+  stagePickerEl.querySelectorAll('input[type=checkbox]').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) included.add(cb.dataset.code); else included.delete(cb.dataset.code);
+      saveIncluded(included);
+      renderStagePicker();
+      renderAll();
+    });
+  });
+  document.getElementById('resetScope').addEventListener('click', ()=>{
+    included = new Set(DEFAULT_INCLUDED);
+    saveIncluded(included);
+    renderStagePicker();
+    renderAll();
+  });
+}
+
+function renderAll(){
+  const units = currentUnits();
+  const includedStageDefs = ALL_STAGES.filter(s=>included.has(s.code));
+
+  // Drop the active tile filter if its stage was just unchecked from scope.
+  if(tileFilter && tileFilter!=="WIP" && !included.has(tileFilter)) tileFilter = null;
+
+  stageFilterEl.innerHTML = '<option value="">All included stages</option>' + includedStageDefs.map(s=>`<option value="${s.code}">${s.label}</option>`).join('');
+  stageFilterEl.value = (tileFilter && tileFilter!=="WIP") ? tileFilter : "";
+  const colors = [...new Set(units.map(u=>u.colorDesc).filter(Boolean))];
+  colorFilterEl.innerHTML = '<option value="">All colors</option>' + colors.map(c=>`<option value="${c}">${c}</option>`).join('');
+
+  renderKPIs();
+  renderTable();
+}
+
+// ---------- table ----------
+const tbody = document.getElementById('tbody');
+const searchEl = document.getElementById('search');
+const stageFilterEl = document.getElementById('stageFilter');
+const colorFilterEl = document.getElementById('colorFilter');
+const rowcountEl = document.getElementById('rowcount');
+
+function stageBadgeHtml(u){
+  return `<span class="badge" style="background:color-mix(in srgb, ${u.stage.color} 16%, transparent);color:${u.stage.color}">${u.stage.label}</span>`;
+}
+function vqMiniHtml(u){
+  if(!reachedInspection(u)) return '<span class="emptynote">&mdash;</span>';
+  const state = seedChecklist(u.vinSuffix);
+  const testerKeys = CHECKLIST_ITEMS.filter(it=>it.group==="tester").map(it=>it.key);
+  const on = testerKeys.filter(k=>state[k]).length;
+  const dots = testerKeys.map((k,i)=>`<span class="dot ${state[k]?'on':''}"></span>`).join('');
+  return `<div class="vqmini" title="${on}/${testerKeys.length} VQ tester steps">${dots}</div>`;
+}
+
+function renderTable(){
+  const units = currentUnits();
+  const q = searchEl.value.trim().toLowerCase();
+  const colorQ = colorFilterEl.value;
+  const rows = units.filter(u=>{
+    if(tileFilter==="WIP"){ if(u.statusCode==="PLAN"||u.statusCode==="USTK") return false; }
+    else if(tileFilter){ if(u.statusCode!==tileFilter) return false; }
+    if(colorQ && u.colorDesc!==colorQ) return false;
+    if(q){
+      const hay = ((u.vin||'')+' '+u.batch+' '+u.stage.label+' '+(u.colorDesc||'')).toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const stageOrder = Object.fromEntries(ALL_STAGES.map((s,i)=>[s.code,i]));
+  rows.sort((a,b)=>
+    (stageOrder[a.statusCode]-stageOrder[b.statusCode]) ||
+    (a.vin||'').localeCompare(b.vin||'') ||
+    (a.colorDesc||'').localeCompare(b.colorDesc||'')
+  );
+  rowcountEl.textContent = rows.length + ' / ' + units.length + ' units in scope';
+  tbody.innerHTML = rows.map(u=>{
+    const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : `<span class="swatch" style="background:transparent;border-style:dashed"></span>`;
+    const wip = u.wipDays==null ? '<span class="emptynote">&mdash;</span>' : `<span class="wipdays ${u.wipDays>25?'high':''}">${u.wipDays} d</span>`;
+    return `<tr data-vin="${u.vin||''}" data-sr="${u.sr}">
+      <td>${u.sr}</td>
+      <td>${u.vin ? `<span class="vin">${u.vin}</span>` : `<span class="emptynote">not yet assigned</span>`}</td>
+      <td>${swatch}${u.colorCode||'<span class="emptynote">pending</span>'}</td>
+      <td>${stageBadgeHtml(u)}</td>
+      <td>${vqMiniHtml(u)}</td>
+      <td>${wip}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
+}
+searchEl.addEventListener('input', renderTable);
+stageFilterEl.addEventListener('change', ()=>{
+  tileFilter = stageFilterEl.value || null;
+  renderKPIs();
+  renderTable();
+});
+colorFilterEl.addEventListener('change', renderTable);
+renderStagePicker();
+renderAll();
+
+// =====================================================================
+// ---------- Supabase data layer (replaces the Claude-artifact db capability) ----------
+// One row per VIN in `units_data` holds: checklist_items, checklist_dates,
+// issues, body_out, paint_out, tcf_out. Reads/writes below go through this
+// thin wrapper so the rest of the app (drawer, report) doesn't need to know
+// it's Supabase underneath.
+// =====================================================================
+async function fetchUnitRow(vin){
+  if(!sb || !vin) return null;
+  const { data, error } = await sb.from('units_data').select('*').eq('vin', vin).maybeSingle();
+  if(error){ console.error(error); return null; }
+  return data;
+}
+async function upsertUnitRow(vin, patch){
+  if(!sb || !vin) return false;
+  const { error } = await sb.from('units_data').upsert({ vin, updated_at: new Date().toISOString(), ...patch });
+  if(error){ console.error(error); return false; }
+  return true;
+}
+function subscribeUnitRow(vin, onChange){
+  if(!sb || !vin) return ()=>{};
+  const channel = sb.channel('unit-'+vin)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'units_data', filter: `vin=eq.${vin}` }, payload=>{
+      onChange(payload.new || null);
+    })
+    .subscribe();
+  return () => { sb.removeChannel(channel); };
+}
+
+// ---------- drawer / detail ----------
+const overlay = document.getElementById('overlay');
+const drawer = document.getElementById('drawer');
+let unsubRow = null, currentDrawerUnit = null, currentRowData = null;
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+function closeDrawer(){
+  overlay.classList.remove('open');
+  if(unsubRow){ try{unsubRow();}catch(e){} unsubRow=null; }
+}
+overlay.addEventListener('click', e=>{ if(e.target===overlay) closeDrawer(); });
+
+// Renders the tap-to-complete checklist and wires each item's click handler.
+function renderChecklistBody(state, canWrite){
+  const groupsHtml = CHECKLIST_GROUPS.map(g=>{
+    const items = CHECKLIST_ITEMS.filter(it=>it.group===g.key);
+    const isTester = g.key==="tester";
+    const itemsHtml = items.map((it,i)=>
+      `<div class="citem ${isTester?'tile':''} ${state[it.key]?'on':''} ${canWrite?'tappable':''}" data-key="${it.key}"><span class="n">${i+1}</span><span class="d"></span><span class="lbl">${it.label}</span></div>`
+    ).join('');
+    const doneCount = items.filter(it=>state[it.key]).length;
+    return `<div class="cgroup">${g.label} <span class="cgroup-count">${doneCount}/${items.length}</span></div><div class="checklist ${isTester?'checklist-line':''}">${itemsHtml}</div>`;
+  }).join('');
+  return groupsHtml;
+}
+function wireChecklistTaps(container, state, dates, vin){
+  if(!sb) return;
+  container.querySelectorAll('.citem.tappable').forEach(el=>{
+    el.addEventListener('click', async ()=>{
+      const key = el.dataset.key;
+      const turningOn = !state[key];
+      const newState = {...state, [key]: turningOn};
+      const newDates = turningOn ? {...dates, [key]: todayStr()} : dates;
+      el.classList.toggle('on');
+      const ok = await upsertUnitRow(vin, { checklist_items: newState, checklist_dates: newDates });
+      if(!ok) el.classList.toggle('on'); // revert on failure
+    });
+  });
+}
+
+// Body/Paint/TCF out are read straight from LX3 Data.xlsx (Act. fin. date)
+// whenever that ERP date exists. Only when it's still blank — the unit hasn't
+// finished that stage yet — does this row fall back to a tap-to-record button,
+// which is what backfills the Production Report tab until the next data drop.
+const MILESTONE_ROWS = [
+  {key:"body_out", label:"Body out", erpField:"bodyFin"},
+  {key:"paint_out", label:"Paint out", erpField:"paintFin"},
+  {key:"tcf_out", label:"TCF out", erpField:"tcfFin"},
+];
+function renderMilestoneRow(label, erpDate, key, tappedValue, canWrite){
+  if(erpDate){
+    return `<div class="trow"><span>${label}</span><span class="d">${fmtDate(erpDate)}</span></div>`;
+  }
+  if(tappedValue){
+    const dateHtml = fmtDate(new Date(tappedValue+'T00:00:00Z'));
+    return `<div class="trow"><span>${label}</span><span class="d">${dateHtml} (tapped)${canWrite?`<button class="clearbtn" data-clear="${key}" title="Clear">&times;</button>`:''}</span></div>`;
+  }
+  return `<div class="trow"><span>${label}</span><span class="d">${canWrite?`<button class="markbtn" data-mark="${key}">Mark today</button>`:'Not recorded'}</span></div>`;
+}
+function renderMilestonesBody(row, canWrite){
+  const u = currentDrawerUnit;
+  const m = row || {};
+  return MILESTONE_ROWS.map(r=>renderMilestoneRow(r.label, u ? u[r.erpField] : null, r.key, m[r.key]||null, canWrite)).join('')
+    + `<div class="trow"><span>Inspection Out</span><span class="d">${fmtDate(u ? u.afInsp : null)}</span></div>`;
+}
+function wireMilestoneTaps(container, vin){
+  if(!sb) return;
+  container.querySelectorAll('[data-mark]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      btn.disabled = true;
+      const ok = await upsertUnitRow(vin, { [btn.dataset.mark]: todayStr() });
+      if(!ok) btn.disabled = false;
+    });
+  });
+  container.querySelectorAll('[data-clear]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      await upsertUnitRow(vin, { [btn.dataset.clear]: null });
+    });
+  });
+}
+
+function renderIssues(items){
+  const list = document.getElementById('issueList');
+  if(!list) return;
+  if(!items || !items.length){
+    list.innerHTML = '<div class="emptynote">No issues logged for this unit yet.</div>';
+    return;
+  }
+  list.innerHTML = items.slice().reverse().map(it=>{
+    const d = it.ts ? new Date(it.ts).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+    return `<div class="issue"><div class="meta">${(it.author||'Anonymous')} &middot; ${d}</div><div class="txt">${(it.text||'').replace(/</g,'&lt;')}</div></div>`;
+  }).join('');
+}
+
+function renderDrawerRow(row){
+  const u = currentDrawerUnit;
+  currentRowData = row;
+  const canWrite = !!sb;
+  const checklistOn = reachedInspection(u);
+
+  const timelineEl = document.getElementById('timelineBody');
+  if(timelineEl){
+    timelineEl.innerHTML = renderMilestonesBody(row, canWrite);
+    if(u.vin) wireMilestoneTaps(timelineEl, u.vin);
+  }
+
+  if(checklistOn){
+    const checklistEl = document.getElementById('checklistBody');
+    const seed = seedChecklist(u.vinSuffix);
+    const state = (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
+    const dates = (row && row.checklist_dates) || {};
+    if(checklistEl){
+      checklistEl.innerHTML = renderChecklistBody(state, canWrite);
+      if(u.vin) wireChecklistTaps(checklistEl, state, dates, u.vin);
+    }
+  }
+
+  renderIssues((row && row.issues) || []);
+}
+
+function openDrawer(vin, sr){
+  const u = ALL_UNITS.find(x=>x.sr===sr);
+  if(!u) return;
+  currentDrawerUnit = u;
+  const isPlan = !u.vin;
+  const swatch = u.colorCode ? `<span class="swatch" style="width:20px;height:20px;background:${COLOR_HEX[u.colorCode]}"></span>` : '';
+  const checklistOn = reachedInspection(u);
+  const remark = u.vinSuffix ? REMARKS[u.vinSuffix] : null;
+
+  drawer.innerHTML = `
+   <div class="drawer-inner">
+    <div class="drawer-hdr">
+      <div>
+        <h2>${u.vin || u.batch}</h2>
+        <div class="sub" style="color:var(--muted);font-size:12px">Batch ${u.batch}${isPlan?' &middot; VIN not yet assigned':''}</div>
+      </div>
+      <button class="closebtn" id="closeBtn">&times;</button>
+    </div>
+    <div class="metarow">
+      <div class="metaitem"><div class="k">Color</div><div class="v">${swatch} ${u.colorDesc||'Pending'}</div></div>
+      <div class="metaitem"><div class="k">Stage</div><div class="v">${u.stage.label}</div></div>
+      <div class="metaitem"><div class="k">Days in WIP</div><div class="v">${u.wipDays==null?'—':u.wipDays+' days'}</div></div>
+    </div>
+    <div class="section-title">Timeline</div>
+    <div class="timeline" id="timelineBody">${renderMilestonesBody(null, false)}</div>
+    <div class="section-title">VQ tester line / repair / final inspection</div>
+    ${checklistOn
+      ? `<div id="checklistBody"></div>${remark ? `<div class="section-title">Line remark</div><div class="issue" style="border-color:var(--good)"><div class="txt">${remark}</div></div>` : ''}`
+      : `<div class="novq">This unit hasn't reached Inspection In yet &mdash; the VQ tester line, repair and final-inspection sub-stages start once it does.</div>`}
+    <div class="section-title">Issues &amp; remarks</div>
+    <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
+    <div class="issueform">
+      <input type="text" id="issueAuthor" placeholder="Your name">
+      <textarea id="issueText" placeholder="Describe the issue on this unit&hellip;"></textarea>
+      <button id="issueSubmit" ${(u.vin && sb)?'':'disabled'}>${sb ? (u.vin? 'Add issue' : 'Assign a VIN before logging issues') : 'Supabase not configured'}</button>
+    </div>
+   </div>
+  `;
+  document.getElementById('closeBtn').onclick = closeDrawer;
+  overlay.classList.add('open');
+
+  if(unsubRow){ try{unsubRow();}catch(e){} unsubRow=null; }
+  if(u.vin && sb){
+    fetchUnitRow(u.vin).then(row=>renderDrawerRow(row));
+    unsubRow = subscribeUnitRow(u.vin, row=>renderDrawerRow(row));
+
+    const btn = document.getElementById('issueSubmit');
+    btn.onclick = async ()=>{
+      const text = document.getElementById('issueText').value.trim();
+      const author = document.getElementById('issueAuthor').value.trim() || 'Anonymous';
+      if(!text) return;
+      btn.disabled = true;
+      const items = (currentRowData && currentRowData.issues) || [];
+      items.push({ts: Date.now(), author, text});
+      const ok = await upsertUnitRow(u.vin, { issues: items });
+      if(ok) document.getElementById('issueText').value = '';
+      btn.disabled = false;
+    };
+  } else {
+    renderDrawerRow(null);
+  }
+}
+
+tbody.addEventListener('click', e=>{
+  const tr = e.target.closest('tr');
+  if(!tr) return;
+  openDrawer(tr.dataset.vin, +tr.dataset.sr);
+});
+
+// ---------- tabs ----------
+const tabbarEl = document.getElementById('tabbar');
+const tabRosterEl = document.getElementById('tabRoster');
+const tabReportEl = document.getElementById('tabReport');
+tabbarEl.addEventListener('click', e=>{
+  const btn = e.target.closest('.tabbtn');
+  if(!btn) return;
+  tabbarEl.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('active', b===btn));
+  const tab = btn.dataset.tab;
+  tabRosterEl.hidden = tab!=='roster';
+  tabReportEl.hidden = tab!=='report';
+  if(tab==='report') loadReport();
+});
+
+// ---------- production report ----------
+// Metrics as rows, dates as columns. Body/Paint/TCF Out prefer the real ERP
+// finish date (LX3 Data.xlsx); a unit only falls back to its tapped milestone
+// date when the ERP value is still blank. QC OK is the same event as
+// Inspection Out, so there's a single Inspection Out row, not two.
+const REPORT_METRICS = [
+  {key:"bodyOut", label:"Body Out"},
+  {key:"paintOut", label:"Paint Out"},
+  {key:"tcfOut", label:"TCF Out"},
+  {key:"inspectionOut", label:"Inspection Out"},
+];
+
+function dateKey(d){ return d ? d.toISOString().slice(0,10) : null; }
+
+async function loadReport(){
+  const bodyEl = document.getElementById('reportBody');
+  bodyEl.innerHTML = '<div class="emptynote">Loading&hellip;</div>';
+  const counts = {}; // 'YYYY-MM-DD' -> {bodyOut,paintOut,tcfOut,inspectionOut}
+  function bump(dateStr, field){
+    if(!dateStr) return;
+    if(!counts[dateStr]) counts[dateStr] = {bodyOut:0,paintOut:0,tcfOut:0,inspectionOut:0};
+    counts[dateStr][field]++;
+  }
+
+  let rowsByVin = {};
+  if(sb){
+    try{
+      const { data, error } = await sb.from('units_data').select('vin,body_out,paint_out,tcf_out');
+      if(!error && data){ data.forEach(r=>{ rowsByVin[r.vin] = r; }); }
+    }catch(e){ /* fall back to ERP-only below if the fetch fails */ }
+  }
+
+  ALL_UNITS.forEach(u=>{
+    const m = (u.vin && rowsByVin[u.vin]) || {};
+    bump(u.bodyFin ? dateKey(u.bodyFin) : (m.body_out||null), 'bodyOut');
+    bump(u.paintFin ? dateKey(u.paintFin) : (m.paint_out||null), 'paintOut');
+    bump(u.tcfFin ? dateKey(u.tcfFin) : (m.tcf_out||null), 'tcfOut');
+    bump(dateKey(u.afInsp), 'inspectionOut');
+  });
+
+  renderReportTable(counts);
+}
+
+function renderReportTable(counts){
+  const bodyEl = document.getElementById('reportBody');
+  const dates = Object.keys(counts).sort((a,b)=>a.localeCompare(b));
+  if(!dates.length){
+    bodyEl.innerHTML = '<div class="emptynote">No dated activity recorded yet.</div>';
+    return;
+  }
+  const dateLabels = dates.map(d=>new Date(d+'T00:00:00Z').toLocaleDateString('en-GB',{day:'2-digit',month:'short'}));
+  const theadHtml = `<tr><th>Stage</th>${dateLabels.map(l=>`<th>${l}</th>`).join('')}<th>Total</th></tr>`;
+  const rowsHtml = REPORT_METRICS.map(m=>{
+    let total = 0;
+    const cellsHtml = dates.map(d=>{
+      const v = counts[d][m.key] || 0;
+      total += v;
+      return `<td>${v||''}</td>`;
+    }).join('');
+    return `<tr><td>${m.label}</td>${cellsHtml}<td class="reporttotalcell">${total}</td></tr>`;
+  }).join('');
+  bodyEl.innerHTML = `
+    <div class="tablewrap">
+      <table>
+        <thead>${theadHtml}</thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+    </div>`;
+}
+document.getElementById('reportRefresh').addEventListener('click', loadReport);
+</script>
+</body>
+</html>
