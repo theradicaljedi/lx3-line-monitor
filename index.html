@@ -257,17 +257,19 @@ tbody tr:last-child td{border-bottom:none}
     <div class="kpis" id="kpis"></div>
 
     <div class="panel" id="dataAdminPanel" hidden>
-      <h2>Upload data</h2>
-      <div class="desc">Uploading a file <strong>replaces</strong> the current production roster or defect report entirely &mdash; everyone viewing this page sees the new data immediately.</div>
-      <div class="uploadrow">
-        <div class="uploadlbl">LX3 Production Data <span class="emptynote">(LX3 Data.xlsx)</span></div>
-        <label class="filebtn">Choose file<input type="file" id="uploadProduction" accept=".xlsx"></label>
-        <span id="uploadProductionStatus" class="emptynote"></span>
-      </div>
-      <div class="uploadrow">
-        <div class="uploadlbl">LX3 Defect Report <span class="emptynote">(LX3 defect report.xlsx)</span></div>
-        <label class="filebtn">Choose file<input type="file" id="uploadDefects" accept=".xlsx"></label>
-        <span id="uploadDefectsStatus" class="emptynote"></span>
+      <h2>Upload data <button type="button" class="collapsebtn" id="uploadToggle" aria-expanded="false" aria-controls="uploadBody">+</button></h2>
+      <div id="uploadBody">
+        <div class="desc">Uploading a file <strong>replaces</strong> the current production roster or defect report entirely &mdash; everyone viewing this page sees the new data immediately.</div>
+        <div class="uploadrow">
+          <div class="uploadlbl">LX3 Production Data <span class="emptynote">(LX3 Data.xlsx)</span></div>
+          <label class="filebtn">Choose file<input type="file" id="uploadProduction" accept=".xlsx"></label>
+          <span id="uploadProductionStatus" class="emptynote"></span>
+        </div>
+        <div class="uploadrow">
+          <div class="uploadlbl">LX3 Defect Report <span class="emptynote">(LX3 defect report.xlsx)</span></div>
+          <label class="filebtn">Choose file<input type="file" id="uploadDefects" accept=".xlsx"></label>
+          <span id="uploadDefectsStatus" class="emptynote"></span>
+        </div>
       </div>
     </div>
 
@@ -912,6 +914,22 @@ scopeToggleBtn.addEventListener('click', ()=>{
   applyScopeCollapsed();
 });
 applyScopeCollapsed();
+
+// ---------- upload panel (collapsed by default — not something most visits need open) ----------
+const uploadBodyEl = document.getElementById('uploadBody');
+const uploadToggleBtn = document.getElementById('uploadToggle');
+let uploadCollapsed = (()=>{ try{ const v = localStorage.getItem('lx3_upload_collapsed'); return v===null ? true : v==='1'; }catch(e){ return true; } })();
+function applyUploadCollapsed(){
+  uploadBodyEl.hidden = uploadCollapsed;
+  uploadToggleBtn.textContent = uploadCollapsed ? '+' : '−';
+  uploadToggleBtn.setAttribute('aria-expanded', String(!uploadCollapsed));
+}
+uploadToggleBtn.addEventListener('click', ()=>{
+  uploadCollapsed = !uploadCollapsed;
+  try{ localStorage.setItem('lx3_upload_collapsed', uploadCollapsed?'1':'0'); }catch(e){}
+  applyUploadCollapsed();
+});
+applyUploadCollapsed();
 
 function renderStagePicker(){
   stagePickerEl.innerHTML = ALL_STAGES.map(s=>{
