@@ -186,6 +186,15 @@ tbody tr:last-child td{border-bottom:none}
 .issue{background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 8px 8px 0;padding:8px 10px}
 .issue .meta{font-size:10.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:3px}
 .issue .txt{font-size:13px}
+
+/* One line per recorded defect — station+date and description share a row
+   instead of stacking, so a VIN with a dozen defects doesn't turn into a
+   long scroll. */
+.defectlist{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.defect-row{display:flex;align-items:baseline;gap:9px;background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 6px 6px 0;padding:6px 10px;overflow:hidden}
+.defect-row .dmeta{font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;white-space:nowrap;flex:0 0 auto}
+.defect-row .dtxt{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
+@media(max-width:520px){ .defect-row .dmeta{display:none} }
 .issueform textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-family:inherit;font-size:12.5px;resize:vertical;min-height:56px;background:var(--surface);color:var(--ink)}
 .issueform input[type=text]{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:12.5px;margin-bottom:6px;background:var(--surface);color:var(--ink)}
 .issueform button{margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer}
@@ -1248,7 +1257,7 @@ function openDrawer(vin, sr){
       : `<div class="novq">This unit hasn't reached Inspection In yet &mdash; the VQ tester line, repair and final-inspection sub-stages start once it does.</div>`}
     <div class="section-title">Recorded defects <span class="cgroup-count">${defectsForVin(u.vinSuffix).length}</span></div>
     ${defectsForVin(u.vinSuffix).length
-      ? `<div class="issuelist">${defectsForVin(u.vinSuffix).map(d=>`<div class="issue"><div class="meta">${d[1]} &middot; ${fmtDate(xl(d[3]))}</div><div class="txt">${d[2]}</div></div>`).join('')}</div>`
+      ? `<div class="defectlist">${defectsForVin(u.vinSuffix).map(d=>`<div class="defect-row" title="${d[1]} &middot; ${fmtDate(xl(d[3]))} &mdash; ${d[2]}"><span class="dmeta">${d[1]} &middot; ${fmtDate(xl(d[3]))}</span><span class="dtxt">${d[2]}</span></div>`).join('')}</div>`
       : `<div class="emptynote">No defects recorded for this unit in the VIN-wise defect report.</div>`}
     <div class="section-title">Issues &amp; remarks</div>
     <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
