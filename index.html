@@ -1083,12 +1083,31 @@ function wireChecklistTaps(container, state, dates, vin){
   container.querySelectorAll('.citem.tappable').forEach(el=>{
     el.addEventListener('click', async ()=>{
       const key = el.dataset.key;
+      const item = CHECKLIST_ITEMS.find(it=>it.key===key);
       const turningOn = !state[key];
-      const newState = {...state, [key]: turningOn};
-      const newDates = turningOn ? {...dates, [key]: todayStr()} : dates;
-      el.classList.toggle('on');
+
+      // The VQ tester line is a sequence, not independent checkboxes: ticking
+      // a step also completes every step before it, and un-ticking one also
+      // un-ticks every step after it — so the tiles always show a single
+      // "how far along" line rather than a scatter of gaps.
+      let affectedKeys = [key];
+      if(item && item.group==="tester"){
+        const testerKeys = CHECKLIST_ITEMS.filter(it=>it.group==="tester").map(it=>it.key);
+        const idx = testerKeys.indexOf(key);
+        affectedKeys = turningOn ? testerKeys.slice(0, idx+1) : testerKeys.slice(idx);
+      }
+
+      const today = todayStr();
+      const newState = {...state};
+      const newDates = {...dates};
+      affectedKeys.forEach(k=>{
+        newState[k] = turningOn;
+        if(turningOn) newDates[k] = today;
+      });
+      const touchedEls = affectedKeys.map(k=>container.querySelector(`[data-key="${k}"]`)).filter(Boolean);
+      touchedEls.forEach(el2=>el2.classList.toggle('on', turningOn));
       const ok = await upsertUnitRow(vin, { checklist_items: newState, checklist_dates: newDates });
-      if(!ok) el.classList.toggle('on'); // revert on failure
+      if(!ok) touchedEls.forEach(el2=>el2.classList.toggle('on', !turningOn)); // revert on failure
     });
   });
 }
