@@ -181,6 +181,8 @@ tbody tr:last-child td{border-bottom:none}
 .metaitem .k{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
 .metaitem .v{font-weight:600}
 .section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:18px 0 8px}
+.section-title.withbtn{display:flex;align-items:center;justify-content:space-between}
+.section-title .linkbtn{display:inline;width:auto;padding:0;font-size:11px;text-transform:none;letter-spacing:normal}
 .timeline{display:flex;flex-direction:column;gap:6px}
 .trow{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;padding:6px 8px;border-radius:6px;background:var(--surface-2)}
 .trow .d{font-family:'IBM Plex Mono',monospace;color:var(--muted);display:flex;align-items:center;gap:6px}
@@ -329,6 +331,22 @@ tbody tr:last-child td{border-bottom:none}
         <button type="button" class="closebtn" id="usersModalClose">&times;</button>
       </div>
       <div class="desc">Admin can view or edit; Editor can view and edit data but not manage accounts; Viewer can only view.</div>
+
+      <div class="section-title" style="margin-top:0">Create account</div>
+      <input type="email" id="newUserEmail" placeholder="Email">
+      <input type="text" id="newUserPassword" placeholder="Temporary password (share this with them)">
+      <div class="frow" style="grid-template-columns:1fr auto;margin-bottom:8px">
+        <select class="roleselect" id="newUserRole">
+          <option value="viewer">Viewer</option>
+          <option value="editor">Editor</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button type="button" class="markbtn" id="newUserSubmit">Create account</button>
+      </div>
+      <div id="newUserError" class="signin-error" hidden></div>
+      <div id="newUserStatus" class="emptynote" hidden></div>
+
+      <div class="section-title">Existing accounts</div>
       <div id="usersError" class="signin-error" hidden></div>
       <div class="tablewrap detail-tablewrap">
         <table>
@@ -699,6 +717,42 @@ async function loadUsersModal(){
     });
   });
 }
+
+document.getElementById('newUserSubmit').addEventListener('click', async ()=>{
+  const email = document.getElementById('newUserEmail').value.trim();
+  const password = document.getElementById('newUserPassword').value;
+  const role = document.getElementById('newUserRole').value;
+  const newUserError = document.getElementById('newUserError');
+  const newUserStatus = document.getElementById('newUserStatus');
+  newUserError.hidden = true; newUserStatus.hidden = true;
+  if(!email || !password){ newUserError.textContent = 'Email and a temporary password are both required.'; newUserError.hidden = false; return; }
+  if(password.length < 6){ newUserError.textContent = 'Password must be at least 6 characters.'; newUserError.hidden = false; return; }
+  const btn = document.getElementById('newUserSubmit');
+  btn.disabled = true;
+  // This uses the project's normal (public) sign-up endpoint — there's no
+  // way to gate account creation to admins-only purely client-side without
+  // a privileged server-side key, which this app deliberately doesn't ship.
+  // Keep the admin's own session intact even if signUp hands back an active
+  // session for the new account (happens when email confirmation is off).
+  const savedSession = currentSession;
+  const { data, error } = await sb.auth.signUp({ email, password });
+  if(data && data.session && savedSession){
+    await sb.auth.setSession({ access_token: savedSession.access_token, refresh_token: savedSession.refresh_token });
+  }
+  btn.disabled = false;
+  if(error){ newUserError.textContent = error.message; newUserError.hidden = false; return; }
+  if(data && data.user){
+    await sb.from('user_roles').upsert({ user_id: data.user.id, email, role });
+  }
+  document.getElementById('newUserEmail').value = '';
+  document.getElementById('newUserPassword').value = '';
+  document.getElementById('newUserRole').value = 'viewer';
+  newUserStatus.textContent = (data && data.session)
+    ? `Account created as ${role}. Share the password with them directly.`
+    : `Account created as ${role}. Supabase emailed them a confirmation link — they must click it before they can sign in.`;
+  newUserStatus.hidden = false;
+  loadUsersModal();
+});
 
 // Re-render whatever's currently open so tap targets light up / lock the
 // moment sign-in state changes, without requiring a page reload.
@@ -1369,12 +1423,15 @@ function wireChecklistTaps(container, state, dates, vin){
         affectedKeys = turningOn ? testerKeys.slice(0, idx+1) : testerKeys.slice(idx);
       }
 
-      const today = todayStr();
+      // Each entry records who completed the step and when — this is the
+      // data the "View log" modal reads; un-ticking a step leaves its last
+      // completion on record rather than erasing it.
+      const logEntry = { date: todayStr(), ts: new Date().toISOString(), by: currentSession.user.email };
       const newState = {...state};
       const newDates = {...dates};
       affectedKeys.forEach(k=>{
         newState[k] = turningOn;
-        if(turningOn) newDates[k] = today;
+        if(turningOn) newDates[k] = logEntry;
       });
       const touchedEls = affectedKeys.map(k=>container.querySelector(`[data-key="${k}"]`)).filter(Boolean);
       touchedEls.forEach(el2=>el2.classList.toggle('on', turningOn));
@@ -1496,7 +1553,7 @@ function openDrawer(vin, sr){
     </div>
     <div class="section-title">Timeline</div>
     <div class="timeline" id="timelineBody">${renderMilestonesBody(null, false)}</div>
-    <div class="section-title">VQ tester line / repair / final inspection</div>
+    <div class="section-title withbtn">VQ tester line / repair / final inspection ${checklistOn?`<button type="button" class="linkbtn" id="checklistLogBtn">View log</button>`:''}</div>
     ${checklistOn
       ? `<div id="checklistBody"></div>${remark ? `<div class="section-title">Line remark</div><div class="issue" style="border-color:var(--good)"><div class="txt">${remark}</div></div>` : ''}`
       : `<div class="novq">This unit hasn't reached Inspection In yet &mdash; the VQ tester line, repair and final-inspection sub-stages start once it does.</div>`}
@@ -1514,6 +1571,8 @@ function openDrawer(vin, sr){
    </div>
   `;
   document.getElementById('closeBtn').onclick = closeDrawer;
+  const logBtn = document.getElementById('checklistLogBtn');
+  if(logBtn) logBtn.onclick = ()=>openChecklistLog(u);
   overlay.classList.add('open');
 
   if(unsubRow){ try{unsubRow();}catch(e){} unsubRow=null; }
