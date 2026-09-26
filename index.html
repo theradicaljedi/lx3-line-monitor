@@ -176,14 +176,11 @@ tbody tr:last-child td{border-bottom:none}
 .drawer-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .drawer-hdr h2{font-family:'IBM Plex Mono',monospace;font-size:18px;margin:0 0 4px;color:var(--accent)}
 .drawer .closebtn{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--ink)}
-/* A single compact line (Color / Stage / Days in WIP) instead of three
-   boxed tiles each padded out to its own row — those wasted a lot of
-   height for three short values. */
-.drawer .metarow{display:flex;flex-wrap:wrap;align-items:center;gap:18px;margin-bottom:12px;font-size:12.5px}
-.metaitem{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
-.metaitem .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-.metaitem .k::after{content:":"}
-.metaitem .v{font-weight:600}
+/* Overview: Color/Stage/Days-in-WIP next to the ERP timeline dates, side by
+   side instead of one long stack — otherwise the card is mostly empty to
+   the right of a single narrow column of rows. */
+.overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;align-items:start}
+@media(max-width:520px){ .overview-grid{grid-template-columns:1fr} }
 .section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:14px 0 6px}
 .section-title.withbtn{display:flex;align-items:center;justify-content:space-between}
 .section-title .linkbtn{display:inline;width:auto;padding:0;font-size:11px;text-transform:none;letter-spacing:normal}
@@ -1582,7 +1579,7 @@ function renderDrawerRow(row){
 
   const timelineEl = document.getElementById('timelineBody');
   if(timelineEl){
-    timelineEl.innerHTML = metaRowsHtml(u) + renderMilestonesBody(row, canWrite);
+    timelineEl.innerHTML = renderMilestonesBody(row, canWrite);
     if(u.vin) wireMilestoneTaps(timelineEl, u.vin);
   }
 
@@ -1618,7 +1615,10 @@ function openDrawer(vin, sr){
       <button class="closebtn" id="closeBtn">&times;</button>
     </div>
     <div class="section-title">Overview</div>
-    <div class="timeline" id="timelineBody">${metaRowsHtml(u)}${renderMilestonesBody(null, false)}</div>
+    <div class="overview-grid">
+      <div class="timeline">${metaRowsHtml(u)}</div>
+      <div class="timeline" id="timelineBody">${renderMilestonesBody(null, false)}</div>
+    </div>
     <div class="section-title withbtn">VQ tester line / repair / final inspection ${checklistOn?`<button type="button" class="linkbtn" id="checklistLogBtn">View log</button>`:''}</div>
     ${checklistOn
       ? `<div id="checklistBody"></div>${remark ? `<div class="section-title">Line remark</div><div class="issue" style="border-color:var(--good)"><div class="txt">${remark}</div></div>` : ''}`
