@@ -322,7 +322,6 @@ tbody tr:last-child td{border-bottom:none}
 
       <div class="panel">
         <h2>Defects by department</h2>
-        <div class="desc">Body Shop / Paint Shop / TCF / Plastic Paint Shop, from the defect report's department field &mdash; older rows logged before this field was in use show as Unassigned.</div>
         <div class="funnel" id="defectByDept"></div>
       </div>
     </div>
@@ -840,7 +839,7 @@ function renderKPIs(){
   const wipInScope = includedStageDefs.filter(s=>s.code!=="PLAN" && s.code!=="USTK").reduce((sum,s)=>sum+stageCount(s.code), 0);
   const tiles = [
     {n:totalInScope, l:"Total units (in scope)", cls:"", filter:null},
-    {n:wipInScope, l:"WIP (in scope)", cls:"warn", filter:"WIP"},
+    {n:wipInScope, l:"Selected WIP", cls:"warn", filter:"WIP"},
     ...includedStageDefs.map(s=>({n:stageCount(s.code), l:s.label, cls:KPI_CLS[s.code]||"", filter:s.code})),
   ];
   kpisEl.innerHTML = tiles.length
