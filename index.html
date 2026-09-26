@@ -1391,7 +1391,7 @@ wireUpload('uploadDefects', 'uploadDefectsStatus', {
   parseRow: r => {
     if(!r || !r[0]) return null; // no VIN — not a real data row
     const desc = (r[12]||'').toString().trim();
-    const hasDefect = r[13]==='New Defect' && desc && desc!=='.';
+    const hasDefect = !!(r[13]==='New Defect' && desc && desc!=='.');
     return {
       vin: String(r[0]).slice(-6),
       station: r[11] || null,
