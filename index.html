@@ -167,11 +167,13 @@ tbody tr:last-child td{border-bottom:none}
 .overlay{position:fixed;inset:0;background:var(--surface);z-index:50;opacity:0;pointer-events:none;transition:opacity .18s}
 .overlay.open{opacity:1;pointer-events:auto}
 .drawer{width:100%;height:100%;background:var(--surface);transform:translateX(100%);transition:transform .22s ease;overflow-y:auto;padding:20px env(safe-area-inset-right,0px) 40px 20px}
-/* Full-page on every screen size, but the content itself stays a compact,
-   centered column — otherwise rows spaced by justify-content:space-between
-   stretch edge-to-edge on wide screens, leaving a huge visual gap between
-   each label and its value. */
-.drawer-inner{max-width:640px;margin:0 auto}
+/* Full-page on every screen size, but the content itself stays a compact
+   column — otherwise rows spaced by justify-content:space-between stretch
+   edge-to-edge on wide screens, leaving a huge visual gap between each
+   label and its value. Left-aligned (not centered) and wide enough for the
+   VQ checklist and Recorded defects to sit side by side, using the blank
+   space a single narrow centered column left on wide screens. */
+.drawer-inner{max-width:980px}
 .overlay.open .drawer{transform:translateX(0)}
 .drawer-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .drawer-hdr h2{font-family:'IBM Plex Mono',monospace;font-size:18px;margin:0 0 4px;color:var(--accent)}
@@ -181,6 +183,10 @@ tbody tr:last-child td{border-bottom:none}
    the right of a single narrow column of rows. */
 .overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;align-items:start}
 @media(max-width:520px){ .overview-grid{grid-template-columns:1fr} }
+/* VQ checklist beside Recorded defects instead of stacked — the checklist
+   column is naturally wider (12-tile grid) so it gets more of the row. */
+.checklist-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:0 20px;align-items:start}
+@media(max-width:760px){ .checklist-grid{grid-template-columns:1fr} }
 .section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:14px 0 6px}
 .section-title.withbtn{display:flex;align-items:center;justify-content:space-between}
 .section-title .linkbtn{display:inline;width:auto;padding:0;font-size:11px;text-transform:none;letter-spacing:normal}
@@ -1619,14 +1625,20 @@ function openDrawer(vin, sr){
       <div class="timeline">${metaRowsHtml(u)}</div>
       <div class="timeline" id="timelineBody">${renderMilestonesBody(null, false)}</div>
     </div>
-    <div class="section-title withbtn">VQ tester line / repair / final inspection ${checklistOn?`<button type="button" class="linkbtn" id="checklistLogBtn">View log</button>`:''}</div>
-    ${checklistOn
-      ? `<div id="checklistBody"></div>${remark ? `<div class="section-title">Line remark</div><div class="issue" style="border-color:var(--good)"><div class="txt">${remark}</div></div>` : ''}`
-      : `<div class="novq">This unit hasn't reached Inspection In yet &mdash; the VQ tester line, repair and final-inspection sub-stages start once it does.</div>`}
-    <div class="section-title">Recorded defects <span class="cgroup-count">${defectsForVin(u.vinSuffix).length}</span></div>
-    ${defectsForVin(u.vinSuffix).length
-      ? `<div class="defectlist">${defectsForVin(u.vinSuffix).map(d=>`<div class="defect-row" title="${d[1]} &middot; ${fmtDate(xl(d[3]))} &mdash; ${d[2]}"><span class="dmeta">${d[1]} &middot; ${fmtDate(xl(d[3]))}</span><span class="dtxt">${d[2]}</span></div>`).join('')}</div>`
-      : `<div class="emptynote">No defects recorded for this unit in the VIN-wise defect report.</div>`}
+    <div class="checklist-grid">
+      <div>
+        <div class="section-title withbtn">VQ tester line / repair / final inspection ${checklistOn?`<button type="button" class="linkbtn" id="checklistLogBtn">View log</button>`:''}</div>
+        ${checklistOn
+          ? `<div id="checklistBody"></div>${remark ? `<div class="section-title">Line remark</div><div class="issue" style="border-color:var(--good)"><div class="txt">${remark}</div></div>` : ''}`
+          : `<div class="novq">This unit hasn't reached Inspection In yet &mdash; the VQ tester line, repair and final-inspection sub-stages start once it does.</div>`}
+      </div>
+      <div>
+        <div class="section-title">Recorded defects <span class="cgroup-count">${defectsForVin(u.vinSuffix).length}</span></div>
+        ${defectsForVin(u.vinSuffix).length
+          ? `<div class="defectlist">${defectsForVin(u.vinSuffix).map(d=>`<div class="defect-row" title="${d[1]} &middot; ${fmtDate(xl(d[3]))} &mdash; ${d[2]}"><span class="dmeta">${d[1]} &middot; ${fmtDate(xl(d[3]))}</span><span class="dtxt">${d[2]}</span></div>`).join('')}</div>`
+          : `<div class="emptynote">No defects recorded for this unit in the VIN-wise defect report.</div>`}
+      </div>
+    </div>
     <div class="section-title">Issues &amp; remarks</div>
     <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
     <div class="issueform">
