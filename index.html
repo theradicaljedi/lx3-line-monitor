@@ -176,16 +176,24 @@ tbody tr:last-child td{border-bottom:none}
 .drawer-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .drawer-hdr h2{font-family:'IBM Plex Mono',monospace;font-size:18px;margin:0 0 4px;color:var(--accent)}
 .drawer .closebtn{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--ink)}
-.drawer .metarow{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
-.metaitem{background:var(--surface-2);border-radius:8px;padding:8px 10px;font-size:12px;flex:1;min-width:110px}
-.metaitem .k{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+/* A single compact line (Color / Stage / Days in WIP) instead of three
+   boxed tiles each padded out to its own row — those wasted a lot of
+   height for three short values. */
+.drawer .metarow{display:flex;flex-wrap:wrap;align-items:center;gap:18px;margin-bottom:12px;font-size:12.5px}
+.metaitem{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.metaitem .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.metaitem .k::after{content:":"}
 .metaitem .v{font-weight:600}
 .section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:14px 0 6px}
 .section-title.withbtn{display:flex;align-items:center;justify-content:space-between}
 .section-title .linkbtn{display:inline;width:auto;padding:0;font-size:11px;text-transform:none;letter-spacing:normal}
-.timeline{display:flex;flex-direction:column;gap:6px}
-.trow{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;padding:6px 8px;border-radius:6px;background:var(--surface-2)}
-.trow .d{font-family:'IBM Plex Mono',monospace;color:var(--muted);display:flex;align-items:center;gap:6px}
+.timeline{display:flex;flex-direction:column;align-items:flex-start;gap:6px}
+/* No justify-content:space-between — that stretched every row to the full
+   (wide) drawer width with a colored background, turning the gap between a
+   short label and its date into a big visible "empty box". Sized to its own
+   content instead, with a sensible floor so short rows aren't tiny pills. */
+.trow{display:flex;align-items:center;gap:16px;font-size:12.5px;padding:6px 10px;border-radius:6px;background:var(--surface-2);min-width:260px}
+.trow .d{font-family:'IBM Plex Mono',monospace;color:var(--muted);display:flex;align-items:center;gap:6px;margin-left:auto}
 .markbtn{background:var(--accent);color:#fff;border:none;border-radius:20px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer}
 .markbtn:disabled{opacity:.5;cursor:default}
 .clearbtn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;line-height:1}
@@ -1521,6 +1529,15 @@ function renderMilestonesBody(row, canWrite){
   return MILESTONE_ROWS.map(r=>renderMilestoneRow(r.label, u ? u[r.erpField] : null, r.key, m[r.key]||null, canWrite)).join('')
     + `<div class="trow"><span>Inspection Out</span><span class="d">${fmtDate(u ? u.afInsp : null)}</span></div>`;
 }
+// Color/Stage/Days-in-WIP as three more rows in the same list, styled and
+// laid out identically to the timeline rows below them — one "Overview"
+// list instead of a separate meta strip plus a separately-headed timeline.
+function metaRowsHtml(u){
+  const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : '';
+  return `<div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc||'Pending'}</span></div>
+    <div class="trow"><span>Stage</span><span class="d">${u.stage.label}</span></div>
+    <div class="trow"><span>Days in WIP</span><span class="d">${u.wipDays==null?'—':u.wipDays+' days'}</span></div>`;
+}
 function wireMilestoneTaps(container, vin){
   if(!canWriteNow()) return;
   container.querySelectorAll('[data-mark]').forEach(btn=>{
@@ -1565,7 +1582,7 @@ function renderDrawerRow(row){
 
   const timelineEl = document.getElementById('timelineBody');
   if(timelineEl){
-    timelineEl.innerHTML = renderMilestonesBody(row, canWrite);
+    timelineEl.innerHTML = metaRowsHtml(u) + renderMilestonesBody(row, canWrite);
     if(u.vin) wireMilestoneTaps(timelineEl, u.vin);
   }
 
@@ -1588,7 +1605,6 @@ function openDrawer(vin, sr){
   if(!u) return;
   currentDrawerUnit = u;
   const isPlan = !u.vin;
-  const swatch = u.colorCode ? `<span class="swatch" style="width:20px;height:20px;background:${COLOR_HEX[u.colorCode]}"></span>` : '';
   const checklistOn = reachedInspection(u);
   const remark = u.vinSuffix ? REMARKS[u.vinSuffix] : null;
 
@@ -1597,17 +1613,12 @@ function openDrawer(vin, sr){
     <div class="drawer-hdr">
       <div>
         <h2>${u.vin || u.batch}</h2>
-        <div class="sub" style="color:var(--muted);font-size:12px">Batch ${u.batch}${isPlan?' &middot; VIN not yet assigned':''}</div>
+        ${isPlan ? `<div class="sub" style="color:var(--muted);font-size:12px">VIN not yet assigned</div>` : ''}
       </div>
       <button class="closebtn" id="closeBtn">&times;</button>
     </div>
-    <div class="metarow">
-      <div class="metaitem"><div class="k">Color</div><div class="v">${swatch} ${u.colorDesc||'Pending'}</div></div>
-      <div class="metaitem"><div class="k">Stage</div><div class="v">${u.stage.label}</div></div>
-      <div class="metaitem"><div class="k">Days in WIP</div><div class="v">${u.wipDays==null?'—':u.wipDays+' days'}</div></div>
-    </div>
-    <div class="section-title">Timeline</div>
-    <div class="timeline" id="timelineBody">${renderMilestonesBody(null, false)}</div>
+    <div class="section-title">Overview</div>
+    <div class="timeline" id="timelineBody">${metaRowsHtml(u)}${renderMilestonesBody(null, false)}</div>
     <div class="section-title withbtn">VQ tester line / repair / final inspection ${checklistOn?`<button type="button" class="linkbtn" id="checklistLogBtn">View log</button>`:''}</div>
     ${checklistOn
       ? `<div id="checklistBody"></div>${remark ? `<div class="section-title">Line remark</div><div class="issue" style="border-color:var(--good)"><div class="txt">${remark}</div></div>` : ''}`
