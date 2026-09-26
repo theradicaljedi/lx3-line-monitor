@@ -178,15 +178,13 @@ tbody tr:last-child td{border-bottom:none}
 .drawer-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .drawer-hdr h2{font-family:'IBM Plex Mono',monospace;font-size:18px;margin:0 0 4px;color:var(--accent)}
 .drawer .closebtn{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--ink)}
-/* Overview: Color/Stage/Days-in-WIP next to the ERP timeline dates, side by
-   side instead of one long stack — otherwise the card is mostly empty to
-   the right of a single narrow column of rows. */
-.overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;align-items:start}
+/* Overview: Color/Stage/Days-in-WIP beside the ERP timeline dates. */
+.overview-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px;align-items:start}
 @media(max-width:520px){ .overview-grid{grid-template-columns:1fr} }
-/* VQ checklist beside Recorded defects instead of stacked — the checklist
-   column is naturally wider (12-tile grid) so it gets more of the row. */
-.checklist-grid{display:grid;grid-template-columns:1.4fr 1fr;gap:0 20px;align-items:start}
-@media(max-width:760px){ .checklist-grid{grid-template-columns:1fr} }
+/* Page-level split: Overview + VQ checklist on the left (the main content),
+   Recorded defects + Issues & remarks stacked as a sidebar on the right. */
+.drawer-2col{display:grid;grid-template-columns:1.5fr 1fr;gap:0 28px;align-items:start}
+@media(max-width:820px){ .drawer-2col{grid-template-columns:1fr} }
 .section-title{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600;margin:14px 0 6px}
 .section-title.withbtn{display:flex;align-items:center;justify-content:space-between}
 .section-title .linkbtn{display:inline;width:auto;padding:0;font-size:11px;text-transform:none;letter-spacing:normal}
@@ -232,6 +230,7 @@ tbody tr:last-child td{border-bottom:none}
    instead of stacking, so a VIN with a dozen defects doesn't turn into a
    long scroll. */
 .defectlist{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+.defectlist.scrollable{max-height:340px;overflow-y:auto;padding-right:4px}
 .defect-row{display:flex;align-items:baseline;gap:9px;background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 6px 6px 0;padding:6px 10px;overflow:hidden}
 .defect-row .dmeta{font-size:10px;color:var(--muted);font-family:'IBM Plex Mono',monospace;white-space:nowrap;flex:0 0 auto}
 .defect-row .dtxt{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
@@ -1530,11 +1529,10 @@ function renderMilestonesBody(row, canWrite){
   const u = currentDrawerUnit;
   const m = row || {};
   return MILESTONE_ROWS.map(r=>renderMilestoneRow(r.label, u ? u[r.erpField] : null, r.key, m[r.key]||null, canWrite)).join('')
-    + `<div class="trow"><span>Inspection Out</span><span class="d">${fmtDate(u ? u.afInsp : null)}</span></div>`;
+    + `<div class="trow"><span>QC OK</span><span class="d">${fmtDate(u ? u.afInsp : null)}</span></div>`;
 }
-// Color/Stage/Days-in-WIP as three more rows in the same list, styled and
-// laid out identically to the timeline rows below them — one "Overview"
-// list instead of a separate meta strip plus a separately-headed timeline.
+// Color/Stage/Days-in-WIP as three rows in the Overview grid's left column
+// — static per unit, so this only ever needs rendering once, in openDrawer.
 function metaRowsHtml(u){
   const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : '';
   return `<div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc||'Pending'}</span></div>
@@ -1620,31 +1618,31 @@ function openDrawer(vin, sr){
       </div>
       <button class="closebtn" id="closeBtn">&times;</button>
     </div>
-    <div class="section-title">Overview</div>
-    <div class="overview-grid">
-      <div class="timeline">${metaRowsHtml(u)}</div>
-      <div class="timeline" id="timelineBody">${renderMilestonesBody(null, false)}</div>
-    </div>
-    <div class="checklist-grid">
-      <div>
+    <div class="drawer-2col">
+      <div class="drawer-main">
+        <div class="section-title" style="margin-top:0">Overview</div>
+        <div class="overview-grid">
+          <div class="timeline">${metaRowsHtml(u)}</div>
+          <div class="timeline" id="timelineBody">${renderMilestonesBody(null, false)}</div>
+        </div>
         <div class="section-title withbtn">VQ tester line / repair / final inspection ${checklistOn?`<button type="button" class="linkbtn" id="checklistLogBtn">View log</button>`:''}</div>
         ${checklistOn
           ? `<div id="checklistBody"></div>${remark ? `<div class="section-title">Line remark</div><div class="issue" style="border-color:var(--good)"><div class="txt">${remark}</div></div>` : ''}`
           : `<div class="novq">This unit hasn't reached Inspection In yet &mdash; the VQ tester line, repair and final-inspection sub-stages start once it does.</div>`}
       </div>
-      <div>
-        <div class="section-title">Recorded defects <span class="cgroup-count">${defectsForVin(u.vinSuffix).length}</span></div>
+      <div class="drawer-side">
+        <div class="section-title" style="margin-top:0">Recorded defects <span class="cgroup-count">${defectsForVin(u.vinSuffix).length}</span></div>
         ${defectsForVin(u.vinSuffix).length
-          ? `<div class="defectlist">${defectsForVin(u.vinSuffix).map(d=>`<div class="defect-row" title="${d[1]} &middot; ${fmtDate(xl(d[3]))} &mdash; ${d[2]}"><span class="dmeta">${d[1]} &middot; ${fmtDate(xl(d[3]))}</span><span class="dtxt">${d[2]}</span></div>`).join('')}</div>`
+          ? `<div class="defectlist scrollable">${defectsForVin(u.vinSuffix).map(d=>`<div class="defect-row" title="${d[1]} &middot; ${fmtDate(xl(d[3]))} &mdash; ${d[2]}"><span class="dmeta">${d[1]} &middot; ${fmtDate(xl(d[3]))}</span><span class="dtxt">${d[2]}</span></div>`).join('')}</div>`
           : `<div class="emptynote">No defects recorded for this unit in the VIN-wise defect report.</div>`}
+        <div class="section-title">Issues &amp; remarks</div>
+        <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
+        <div class="issueform">
+          <input type="text" id="issueAuthor" placeholder="Your name">
+          <textarea id="issueText" placeholder="Describe the issue on this unit&hellip;"></textarea>
+          <button id="issueSubmit" ${(u.vin && canWriteNow())?'':'disabled'}>${!sb ? 'Supabase not configured' : !currentSession ? 'Sign in to add issues' : !canWriteNow() ? 'Viewers cannot add issues' : (u.vin? 'Add issue' : 'Assign a VIN before logging issues')}</button>
+        </div>
       </div>
-    </div>
-    <div class="section-title">Issues &amp; remarks</div>
-    <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
-    <div class="issueform">
-      <input type="text" id="issueAuthor" placeholder="Your name">
-      <textarea id="issueText" placeholder="Describe the issue on this unit&hellip;"></textarea>
-      <button id="issueSubmit" ${(u.vin && canWriteNow())?'':'disabled'}>${!sb ? 'Supabase not configured' : !currentSession ? 'Sign in to add issues' : !canWriteNow() ? 'Viewers cannot add issues' : (u.vin? 'Add issue' : 'Assign a VIN before logging issues')}</button>
     </div>
    </div>
   `;
