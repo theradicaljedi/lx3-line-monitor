@@ -677,6 +677,8 @@ function reachedInspection(u){ return ["4000","4010","USTK"].includes(u.statusCo
 // the top KPI tiles always show every stage's true count regardless of this choice.
 const ALL_STAGES = [
   {code:"PLAN", label:"Planning", color:"var(--plan)"},
+  {code:"1000", label:"Body in", color:"var(--plan)"},
+  {code:"1010", label:"Body out", color:"var(--plan)"},
   {code:"2000", label:"Paint in", color:"var(--paint)"},
   {code:"2010", label:"Paint out", color:"var(--paint)"},
   {code:"3000", label:"TCF in", color:"var(--plan)"},
@@ -729,7 +731,7 @@ function currentUnits(){
 // ---------- KPIs (top tiles) — driven by the Monitoring scope checkboxes, and clickable to filter the roster ----------
 const stageCount = code => ROWS.filter(r=>r[5]===code).length;
 const kpisEl = document.getElementById('kpis');
-const KPI_CLS = {PLAN:"plan", "2000":"plan", "2010":"plan", "3000":"plan", "3010":"accent", "4000":"warn", "4010":"warn", USTK:"good"};
+const KPI_CLS = {PLAN:"plan", "1000":"plan", "1010":"plan", "2000":"plan", "2010":"plan", "3000":"plan", "3010":"accent", "4000":"warn", "4010":"warn", USTK:"good"};
 // null = no tile filter (roster shows everything in scope); "WIP" = the WIP tile; or a stage code.
 let tileFilter = null;
 function setTileFilter(code){
@@ -1305,6 +1307,7 @@ async function initData(){
     INSPECTED_VINS.clear();
     new Set(defRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
   }
+  renderStagePicker(); // its per-stage counts read ROWS directly — stale otherwise
   renderAll();
   if(!tabReportEl.hidden) loadReport();
   if(!tabAnalysisEl.hidden) renderAnalysis();
