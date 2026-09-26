@@ -79,6 +79,14 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .stagepicker input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
 .stagepicker .swal{margin-left:auto;background:none;border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:12px;color:var(--muted);cursor:pointer}
 
+.funnel{display:flex;flex-direction:column;gap:8px}
+.frow{display:grid;grid-template-columns:130px 1fr 46px;align-items:center;gap:10px}
+.frow .lbl{font-size:12.5px;color:var(--muted);text-align:right;white-space:nowrap}
+.ftrack{background:var(--surface-2);border-radius:6px;height:16px;overflow:hidden;position:relative}
+.ffill{height:100%;border-radius:6px 0 0 6px;min-width:2px}
+.frow .cnt{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:12.5px}
+@media(max-width:640px){ .frow{grid-template-columns:96px 1fr 34px} }
+
 .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
 .toolbar input[type=search]{flex:1;min-width:180px;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
 .toolbar select{padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
@@ -173,6 +181,7 @@ tbody tr:last-child td{border-bottom:none}
   <div class="tabbar" id="tabbar">
     <button type="button" class="tabbtn active" data-tab="roster">Unit Roster</button>
     <button type="button" class="tabbtn" data-tab="report">Production Report</button>
+    <button type="button" class="tabbtn" data-tab="analysis">Defect Analysis</button>
   </div>
 
   <div id="tabRoster">
@@ -209,6 +218,36 @@ tbody tr:last-child td{border-bottom:none}
     <div class="panel">
       <h2>Production report <button type="button" class="collapsebtn" id="reportRefresh" title="Refresh">&#8635;</button></h2>
       <div id="reportBody"><div class="emptynote">Loading&hellip;</div></div>
+    </div>
+  </div>
+
+  <div id="tabAnalysis" hidden>
+    <div class="kpis" id="defectKpis"></div>
+
+    <div class="panel">
+      <h2>Defects by inspection station</h2>
+      <div class="funnel" id="defectByProcess"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Most frequent defects</h2>
+      <div class="desc">Grouped by defect wording &mdash; same defect reported on different units counts as separate occurrences</div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Defect</th><th>Station</th><th>Occurrences</th></tr></thead>
+          <tbody id="topDefectsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Defects by unit</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr></thead>
+          <tbody id="defectsByVinBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -340,6 +379,135 @@ const FULL12 = new Set(["900091","900092","900097","900100","900102","900109","9
 const REPAIR_DONE = new Set(["900093","900101"]); // Overall Repairing: TCF/BS/PS
 const FINAL_PARTIAL = { "900101": {insp:true,repair:true,qcOk:true,water:true,init1000:true,pdi:false} };
 const REMARKS = { "900101": "QC OK" };
+
+// VIN-wise defect report (source: LX3 defect report.xlsx). One entry per
+// (VIN, inspection station, defect) — "NIL"/clean inspection rows are left
+// out entirely since they carry no information here.
+// [vinSuffix, station, defect, dateSerial]
+const DEFECTS = [
+["900001","Engine Room Inspection","WHEEL HOSE BODY PLUG MISS FR/L+R",46273],
+["900001","Engine Room Inspection","RR WHEEL ARCH FLAPER MISS L+R",46273],
+["900001","Engine Room Inspection","HOOD OPENING WIRE ROTING WRONG",46273],
+["900002","Engine Room Inspection","RR WHEEL ARCH FLAPER MISS L+R",46273],
+["900002","Engine Room Inspection","HOOD OPENING WIRE ROTING WRONG",46273],
+["900002","Engine Room Inspection","WHEEL HOSE BODY PLUG MISS FR/L+R",46273],
+["900004","INTERIOR&FUNCTIONAL INSPECTION","SEAT VENTILATION NOT WORK FR/R",46274],
+["900004","INTERIOR&FUNCTIONAL INSPECTION","SEAT SIDE GARNISH NPF 2ND ROW",46274],
+["900005","Engine Room Inspection","RR WHEEL ARCH FLAPER MISS L+R",46273],
+["900005","Engine Room Inspection","HOOD OPENING WIRE ROTING WRONG",46273],
+["900005","Engine Room Inspection","WHEEL HOSE BODY PLUG MISS FR/L+R",46273],
+["900008","Engine Room Inspection","WHEEL HOSE BODY PLUG MISS FR/L+R",46273],
+["900008","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEATS",46274],
+["900008","INTERIOR&FUNCTIONAL INSPECTION","DOOR APINCH NPF RR/L",46274],
+["900008","INTERIOR&FUNCTIONAL INSPECTION","DOOR TOUCHING RR/L",46274],
+["900009","INTERIOR&FUNCTIONAL INSPECTION","SEAT SPLITE UNEVEN 3RD ROW",46274],
+["900009","INTERIOR&FUNCTIONAL INSPECTION","SEAT SIDE GARNISH NPF 2ND ROW",46274],
+["900010","INTERIOR&FUNCTIONAL INSPECTION","SEAT SIDE GARNISH NPF 2ND ROW",46274],
+["900010","INTERIOR&FUNCTIONAL INSPECTION","DOOR APINCH NPF RR.L",46274],
+["900010","INTERIOR&FUNCTIONAL INSPECTION","T/GATE MAIN TRIM NPF L+R/S",46274],
+["900011","Engine Room Inspection","BULK HEAD COVER STICKER MISS",46280],
+["900011","Engine Room Inspection","WHEEL HOSE INR LINING SCREW MISS RR/L",46280],
+["900012","Dynamic Test","RR/R SEAT NOISE BOLT LOSS",46267],
+["900013","Engine Room Inspection","WHEEL HOSE BODY PLUG MISS FR/L+R",46273],
+["900013","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEATS",46274],
+["900013","INTERIOR&FUNCTIONAL INSPECTION","DOOR APINCH NPF RR/L",46274],
+["900014","Dynamic Test","NOISE COME FROM ENGINE ROOM",46267],
+["900014","INTERIOR&FUNCTIONAL INSPECTION","SEAT SIDE GARNISH NPF 2ND ROW",46274],
+["900015","Water Leakage Test","LEAKAGE TAIL GATE",46261],
+["900015","Water Leakage Test","LEAKAGE FR/L CARPET",46261],
+["900015","INTERIOR&FUNCTIONAL INSPECTION","SEAT SPLITE UNEVEN 3RD ROW",46274],
+["900016","Water Leakage Test","LEAKAGE TAIL GATE W/STRIP",46261],
+["900017","Water Leakage Test","LEAKAGE FR SCREEN R/S SELER PIN HOLE",46261],
+["900018","Under Body Inspection","TRALING ARM MTG RUBBER DAMAGE",46273],
+["900018","INTERIOR&FUNCTIONAL INSPECTION","SEAT SIDE GARNISH NPF 2ND ROW",46274],
+["900018","INTERIOR&FUNCTIONAL INSPECTION","T/GATE MAIN TRIM NPF L+R/S",46274],
+["900019","Under Body Inspection","FLOOR UNDER COVER DAMAGE R/S",46273],
+["900019","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEATS",46274],
+["900019","INTERIOR&FUNCTIONAL INSPECTION","DOOR TOUCHING RR/L",46274],
+["900020","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEATS",46274],
+["900022","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEATS",46274],
+["900024","Water Leakage Test","LEAKAGE TAIL GATE SPOILER SEAL BEND",46268],
+["900024","Engine Room Inspection","WHEEL HOSE BODY PLUG MISS FR/L+R",46273],
+["900024","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEATS",46274],
+["900025","INTERIOR&FUNCTIONAL INSPECTION","SEAT SPLITE UNEVEN 3RD ROW",46274],
+["900026","Water Leakage Test","LEAKAGE QTR  GLASS R/S",46270],
+["900027","Under Body Inspection","ENGINE UNDER COVER BOLT MISS",46269],
+["900027","Exterior Inspection","SCRATCH ON RR SKID PLATE(TCF)",46272],
+["900027","Water Leakage Test","LEAKAGE TAIL GATE W/STRIP NPF AND USB PO",46272],
+["900028","Exterior Inspection","PIN HOLE ON LOWER BACK PNL L/S",46261],
+["900028","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEATS",46274],
+["900028","INTERIOR&FUNCTIONAL INSPECTION","SEAT SPLITE UNEVEN 3RD ROW",46274],
+["900028","INTERIOR&FUNCTIONAL INSPECTION","T/GATE MAIN TRIM NPF L+R/S",46274],
+["900029","Water Leakage Test","LEAKAGE TAIL GATE WIRING GOURMET NPF AND",46273],
+["900029","Engine Room Inspection","BODY VIN SEENA BAR MISS",46273],
+["900029","Engine Room Inspection","HEAT INSULATOR STOPPER MISS",46273],
+["900030","Engine Room Inspection","WHEEL HOSE BODY PLUG MISS FR/R",46273],
+["900091","Exterior Inspection","HEAD LAMP SEAL BEND BOTH SIDE",46290],
+["900091","Exterior Inspection","LESS PAINT ON WHEEL HOUSE GARNISH RR/R",46290],
+["900092","Water Leakage Test","LEACKEGE TAIL GATE L/S",46291],
+["900093","INTERIOR&FUNCTIONAL INSPECTION","SEAT SILIDING NOISE RR/R 2ND ROW",46290],
+["900093","INTERIOR&FUNCTIONAL INSPECTION","SEAT NOT PROPER FOLD RR/L 3RD ROW",46290],
+["900093","Exterior Inspection","NF BTWN TAILGATE AND O/S LAMP L/S",46290],
+["900094","Exterior Inspection","DING INSIDE TAILGATE SHELF R/S",46290],
+["900094","Exterior Inspection","NF BTWN TAILGATE AND O/S LAMP L/S",46290],
+["900095","INTERIOR&FUNCTIONAL INSPECTION","SEAT ARM REST LOSE 2nd ROW RR/R",46290],
+["900095","INTERIOR&FUNCTIONAL INSPECTION","SEAT SPLIT SWITCH ASS NPF FR/L",46290],
+["900095","Exterior Inspection","NF DR FRAME GARNISH FR&RR L/S",46290],
+["900096","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEAT",46290],
+["900097","INTERIOR&FUNCTIONAL INSPECTION","SEAT SILIDING NOISE RR/R 2ND ROW",46290],
+["900097","INTERIOR&FUNCTIONAL INSPECTION","CUT ON DOOR TRIM RR/R",46290],
+["900097","Exterior Inspection","NF BTWN TAILGATE AND O/S LAMP L/S",46290],
+["900100","Exterior Inspection","PAINT OVER SPRAY INSIDE OUTER PNL RR/R",46290],
+["900100","Exterior Inspection","BLACK DUST ON HOOD PNL L/S",46290],
+["900100","Exterior Inspection","SLUDGE ON OUTER PNL RR/R SIDE",46290],
+["900100","Exterior Inspection","DOOR HINGE BOLT LOSE RR/L",46290],
+["900101","Exterior Inspection","NF BTWN TAILGATE AND O/S LAMP R/S",46290],
+["900101","Exterior Inspection","NOT FLUSH BTWN FR AND RR DOOR GARNISH R/",46290],
+["900101","Exterior Inspection","LESS PAINT ON FRONT COVER BUMPER",46290],
+["900101","Exterior Inspection","SCRATCH ON FENDER GARNISH R/S",46290],
+["900102","Exterior Inspection","HOLE IN BODY INSIDE OUTER PNL FR/L",46290],
+["900106","INTERIOR&FUNCTIONAL INSPECTION","SUNROOF NOISE",46290],
+["900107","INTERIOR&FUNCTIONAL INSPECTION","HIT MARK ON C PAD L/S",46291],
+["900107","Exterior Inspection","DING ON HOOD PNL L/SIDE",46291],
+["900107","Exterior Inspection","SANDING POLISH ON RR SPOILER R/S",46291],
+["900107","Exterior Inspection","SCRATCH ON WHEEL GARNISH RR/R",46291],
+["900107","Exterior Inspection","SEALER TOUCH MARK INSIDE TAILGATE HINGE",46291],
+["900109","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALLSEAT",46290],
+["900109","Engine Room Inspection","HOOD CAUTION STICKER MISS",46290],
+["900109","Engine Room Inspection","ARCH FLAPPER MISS RR/R",46290],
+["900110","INTERIOR&FUNCTIONAL INSPECTION","SEAT BELT BEND+STUCK 3rd ROW  R/S",46291],
+["900110","INTERIOR&FUNCTIONAL INSPECTION","SEAT SPLIT UNEVEN 3rd ROW",46291],
+["900110","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEAT",46291],
+["900110","INTERIOR&FUNCTIONAL INSPECTION","2nd ROW SEAT WIRE HARNESS CLIP MISS R/S",46291],
+["900110","INTERIOR&FUNCTIONAL INSPECTION","CUT ON CTR CONSOL LEATHER RR/R/S",46291],
+["900110","Engine Room Inspection","FR BUMPER SCREW NOT INSTALL R/S",46291],
+["900110","Engine Room Inspection","WHEEL HOSE INR LINING CLIP MISS FR/L+R",46291],
+["900112","Exterior Inspection","NF BTWN TAILGATE AND O/S LAMP L/S",46290],
+["900114","Exterior Inspection","SLUDGE INSIDE TAILGATE HINGE R/S",46290],
+["900114","Exterior Inspection","TOUCH MARK ON FRONT BUMPER COVER",46290],
+["900114","Exterior Inspection","SCRATCH ON BUMPER RR/R CENTER",46290],
+["900114","Exterior Inspection","SCRATCH ON FENDER GARNISH R/S",46290],
+["900114","Exterior Inspection","WHEEL HOUSE HAMMING RR/R",46290],
+["900114","Exterior Inspection","NF BTWN TAILGATE AND O/S LAMP L/S",46290],
+["900115","INTERIOR&FUNCTIONAL INSPECTION","WRINKLE ON ALL SEAT",46290],
+["900115","Exterior Inspection","NF BTWN TAILGATE AND O/S LAMP L/S",46290],
+["900116","INTERIOR&FUNCTIONAL INSPECTION","SEAT SILIDING NOISE RR/R 2ND ROW",46290],
+["900116","Exterior Inspection","SANDING MARK ON FENDER R/S",46290],
+["900117","Exterior Inspection","D SHAPE ON FENDER EDGE R/S",46290],
+["900117","Exterior Inspection","SCRATCH ON FENDER GARNISH R/S",46290],
+["900117","Exterior Inspection","SCRATCH ON FENDER GARNISH L/S",46290],
+["900120","INTERIOR&FUNCTIONAL INSPECTION","SEAT HEAT & COOL FUNCTION NOT WORK FR/L",46291],
+["900120","INTERIOR&FUNCTIONAL INSPECTION","DEFORM ON C PAD LEATHER L/S",46291],
+["900120","INTERIOR&FUNCTIONAL INSPECTION","DOOR W/ STRIP APINCH NPF RR/R+L",46291],
+["900120","Exterior Inspection","SANDING MARK ON SPOILER L/S",46291],
+["900120","Exterior Inspection","SCRATCH ON DOOR GARNISH RR/R SIDE",46291],
+["900120","Exterior Inspection","NF BTWN OUTSIDE COBI LAMP AND B/PNL L/S",46291],
+];
+function defectsForVin(vinSuffix){ return DEFECTS.filter(d=>d[0]===vinSuffix); }
+// Every VIN the defect report actually inspected (clean passes included) —
+// used as the denominator for "clean units", since the fleet has plenty of
+// units this report simply hasn't reached yet.
+const INSPECTED_VINS = new Set(["900001","900002","900003","900004","900005","900006","900007","900008","900009","900010","900011","900012","900013","900014","900015","900016","900017","900018","900019","900020","900022","900023","900024","900025","900026","900027","900028","900029","900030","900091","900092","900093","900094","900095","900096","900097","900100","900101","900102","900106","900107","900109","900110","900112","900114","900115","900116","900117","900120"]);
 
 // The 21 sub-stage items, grouped exactly as the shop floor tracks them. These
 // only apply once a unit reaches Inspection In — that's what "kicks them on".
@@ -776,6 +944,10 @@ function openDrawer(vin, sr){
     ${checklistOn
       ? `<div id="checklistBody"></div>${remark ? `<div class="section-title">Line remark</div><div class="issue" style="border-color:var(--good)"><div class="txt">${remark}</div></div>` : ''}`
       : `<div class="novq">This unit hasn't reached Inspection In yet &mdash; the VQ tester line, repair and final-inspection sub-stages start once it does.</div>`}
+    <div class="section-title">Recorded defects <span class="cgroup-count">${defectsForVin(u.vinSuffix).length}</span></div>
+    ${defectsForVin(u.vinSuffix).length
+      ? `<div class="issuelist">${defectsForVin(u.vinSuffix).map(d=>`<div class="issue"><div class="meta">${d[1]} &middot; ${fmtDate(xl(d[3]))}</div><div class="txt">${d[2]}</div></div>`).join('')}</div>`
+      : `<div class="emptynote">No defects recorded for this unit in the VIN-wise defect report.</div>`}
     <div class="section-title">Issues &amp; remarks</div>
     <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
     <div class="issueform">
@@ -820,6 +992,7 @@ tbody.addEventListener('click', e=>{
 const tabbarEl = document.getElementById('tabbar');
 const tabRosterEl = document.getElementById('tabRoster');
 const tabReportEl = document.getElementById('tabReport');
+const tabAnalysisEl = document.getElementById('tabAnalysis');
 tabbarEl.addEventListener('click', e=>{
   const btn = e.target.closest('.tabbtn');
   if(!btn) return;
@@ -827,8 +1000,71 @@ tabbarEl.addEventListener('click', e=>{
   const tab = btn.dataset.tab;
   tabRosterEl.hidden = tab!=='roster';
   tabReportEl.hidden = tab!=='report';
+  tabAnalysisEl.hidden = tab!=='analysis';
   if(tab==='report') loadReport();
+  if(tab==='analysis') renderAnalysis();
 });
+
+// ---------- defect analysis ----------
+const DEFECT_STATIONS = [...new Set(DEFECTS.map(d=>d[1]))];
+function renderAnalysis(){
+  const vinsWithDefects = new Set(DEFECTS.map(d=>d[0]));
+
+  document.getElementById('defectKpis').innerHTML = [
+    {n: DEFECTS.length, l:"Total defects logged", cls:""},
+    {n: INSPECTED_VINS.size, l:"Units inspected (this report)", cls:""},
+    {n: vinsWithDefects.size, l:"Units with &ge;1 defect", cls:"warn"},
+    {n: Math.max(0,INSPECTED_VINS.size - vinsWithDefects.size), l:"Clean units (0 defects)", cls:"good"},
+    {n: (DEFECTS.length/Math.max(1,vinsWithDefects.size)).toFixed(1), l:"Avg. defects / affected unit", cls:"accent"},
+  ].map(k=>`<div class="kpi ${k.cls}"><div class="n">${k.n}</div><div class="l">${k.l}</div></div>`).join('');
+
+  const byStation = DEFECT_STATIONS.map(s=>({label:s, count:DEFECTS.filter(d=>d[1]===s).length}))
+    .sort((a,b)=>b.count-a.count);
+  const maxStation = Math.max(1, ...byStation.map(s=>s.count));
+  document.getElementById('defectByProcess').innerHTML = byStation.map(s=>{
+    const pct = Math.max(4, Math.round(s.count/maxStation*100));
+    return `<div class="frow">
+      <div class="lbl">${s.label}</div>
+      <div class="ftrack"><div class="ffill" style="width:${pct}%;background:var(--bad)"></div></div>
+      <div class="cnt">${s.count}</div>
+    </div>`;
+  }).join('');
+
+  const byDesc = {};
+  DEFECTS.forEach(d=>{
+    const key = d[2].trim().toUpperCase();
+    if(!byDesc[key]) byDesc[key] = {desc:d[2], station:d[1], count:0};
+    byDesc[key].count++;
+  });
+  const topDefects = Object.values(byDesc).sort((a,b)=>b.count-a.count).slice(0,15);
+  document.getElementById('topDefectsBody').innerHTML = topDefects.map(t=>
+    `<tr><td>${t.desc}</td><td>${t.station}</td><td>${t.count}</td></tr>`
+  ).join('') || `<tr><td colspan="3"><div class="emptynote">No defects recorded.</div></td></tr>`;
+
+  const byVin = {};
+  DEFECTS.forEach(d=>{ byVin[d[0]] = (byVin[d[0]]||0) + 1; });
+  const vinRows = [...INSPECTED_VINS].map(vinSuffix=>{
+    const u = ALL_UNITS.find(x=>x.vinSuffix===vinSuffix);
+    return {u, vinSuffix, count: byVin[vinSuffix]||0};
+  }).sort((a,b)=>b.count-a.count);
+  document.getElementById('defectsByVinBody').innerHTML = vinRows.map(r=>{
+    const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
+    return `<tr data-vin="${r.u?r.u.vin:''}" data-sr="${r.u?r.u.sr:''}">
+      <td><span class="vin">${r.u ? r.u.vin : r.vinSuffix}</span></td>
+      <td>${swatch}${r.u ? (r.u.colorCode||'') : ''}</td>
+      <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
+      <td>${r.count}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="4"><div class="emptynote">No defects recorded.</div></td></tr>`;
+  document.getElementById('defectsByVinBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
+    if(!tr.dataset.sr) return;
+    tr.style.cursor = 'pointer';
+    tr.addEventListener('click', ()=>{
+      tabbarEl.querySelector('[data-tab="roster"]').click();
+      openDrawer(tr.dataset.vin, +tr.dataset.sr);
+    });
+  });
+}
 
 // ---------- production report ----------
 // Metrics as rows, dates as columns. Body/Paint/TCF Out prefer the real ERP
