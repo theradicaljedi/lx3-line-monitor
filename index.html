@@ -1027,11 +1027,16 @@ function vqMiniHtml(u){
 }
 
 function renderTable(){
-  const units = currentUnits();
+  // "Include BU" is a dedicated, standalone control for BU Stock units in
+  // this table — it wins regardless of whether "BU Stock" happens to be
+  // checked in the Monitoring Scope modal (that Set only governs everything
+  // else here). Otherwise, unchecking BU Stock in Scope made this checkbox
+  // unable to bring USTK units back, since currentUnits() had already
+  // dropped them before this function ever saw them.
+  const units = ALL_UNITS.filter(u => u.statusCode==="USTK" ? includeBU : included.has(u.statusCode));
   const q = searchEl.value.trim().toLowerCase();
   const colorQ = colorFilterEl.value;
   const rows = units.filter(u=>{
-    if(!includeBU && u.statusCode==="USTK") return false;
     if(tileFilter==="WIP"){ if(u.statusCode==="PLAN"||u.statusCode==="USTK") return false; }
     else if(tileFilter){ if(u.statusCode!==tileFilter) return false; }
     if(colorQ && u.colorDesc!==colorQ) return false;
