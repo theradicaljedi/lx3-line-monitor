@@ -92,6 +92,8 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .kpi.plan .n{color:var(--plan)}
 
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px 18px;margin-bottom:16px}
+.panelrow{display:flex;flex-wrap:wrap;gap:16px}
+.panelrow .panel{flex:1 1 380px;min-width:0}
 .panel h2{font-family:'Oswald',sans-serif;font-size:15px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin:0 0 2px;display:flex;align-items:center;gap:8px}
 .panel .desc{color:var(--muted);font-size:12px;margin-bottom:14px}
 .collapsebtn{margin-left:auto;width:22px;height:22px;line-height:1;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
@@ -308,15 +310,17 @@ tbody tr:last-child td{border-bottom:none}
   <div id="tabAnalysis" hidden>
     <div class="kpis" id="defectKpis"></div>
 
-    <div class="panel" style="max-width:460px">
-      <h2>Defects by inspection station</h2>
-      <div class="funnel" id="defectByProcess"></div>
-    </div>
+    <div class="panelrow">
+      <div class="panel">
+        <h2>Defects by inspection station</h2>
+        <div class="funnel" id="defectByProcess"></div>
+      </div>
 
-    <div class="panel" style="max-width:460px">
-      <h2>Defects by department</h2>
-      <div class="desc">Body Shop / Paint Shop / TCF / Plastic Paint Shop, from the defect report's department field &mdash; older rows logged before this field was in use show as Unassigned.</div>
-      <div class="funnel" id="defectByDept"></div>
+      <div class="panel">
+        <h2>Defects by department</h2>
+        <div class="desc">Body Shop / Paint Shop / TCF / Plastic Paint Shop, from the defect report's department field &mdash; older rows logged before this field was in use show as Unassigned.</div>
+        <div class="funnel" id="defectByDept"></div>
+      </div>
     </div>
 
     <div class="panel">
