@@ -43,7 +43,9 @@ html,body{margin:0;padding:0}
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:14px;line-height:1.45}
 .wrap{max-width:1280px;margin:0 auto;padding:20px 20px 64px}
-.hdr{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:20px}
+.hdr{display:flex;flex-wrap:nowrap;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
+.hdr-title{min-width:0}
+.hdr-actions{flex:none}
 .hdr h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;letter-spacing:.2px;margin:0 0 2px}
 .hdr .sub{color:var(--muted);font-size:13px}
 .hdr .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:6px}
@@ -55,6 +57,10 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .authuser button{background:none;border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:11px;color:var(--muted);cursor:pointer}
 .signin-overlay{position:fixed;inset:0;background:rgba(10,14,18,.5);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}
 .signin-box{background:var(--surface);border-radius:12px;padding:18px;width:100%;max-width:340px;box-shadow:var(--shadow)}
+.detail-box{max-width:680px;max-height:85vh;display:flex;flex-direction:column}
+.detail-tablewrap{overflow-y:auto}
+.detail-row{cursor:pointer}
+.detail-row:hover{background:var(--surface-2)}
 .signin-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
 .signin-hdr h3{margin:0;font-family:'Oswald',sans-serif;font-size:16px}
 .signin-box .desc{margin-bottom:14px}
@@ -189,12 +195,11 @@ tbody tr:last-child td{border-bottom:none}
 
 <div class="wrap">
   <div class="hdr">
-    <div>
+    <div class="hdr-title">
       <div class="eyebrow">HNMPL</div>
       <h1>LX3 Palisade HEV &mdash; Line Monitor</h1>
     </div>
-    <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end">
-      <div class="connbadge" id="connBadge"><span class="dot"></span><span id="connText">Connecting&hellip;</span></div>
+    <div class="hdr-actions">
       <div id="authArea"></div>
     </div>
   </div>
@@ -213,8 +218,24 @@ tbody tr:last-child td{border-bottom:none}
     </div>
   </div>
 
+  <div id="defectDetailOverlay" class="signin-overlay" hidden>
+    <div class="signin-box detail-box">
+      <div class="signin-hdr">
+        <h3 id="defectDetailTitle">Details</h3>
+        <button type="button" class="closebtn" id="defectDetailClose">&times;</button>
+      </div>
+      <div class="desc" id="defectDetailDesc"></div>
+      <div class="tablewrap detail-tablewrap">
+        <table>
+          <thead id="defectDetailHead"></thead>
+          <tbody id="defectDetailBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div class="tabbar" id="tabbar">
-    <button type="button" class="tabbtn active" data-tab="roster">Unit Roster</button>
+    <button type="button" class="tabbtn active" data-tab="roster">Units</button>
     <button type="button" class="tabbtn" data-tab="report">Production Report</button>
     <button type="button" class="tabbtn" data-tab="analysis">Defect Analysis</button>
   </div>
@@ -246,7 +267,7 @@ tbody tr:last-child td{border-bottom:none}
     </div>
 
     <div class="panel">
-      <h2>Unit roster</h2>
+      <h2>Units</h2>
       <div class="toolbar">
         <input type="search" id="search" placeholder="Search VIN or batch&hellip;">
         <select id="stageFilter"></select>
@@ -321,17 +342,13 @@ const sb = (SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-const connBadge = document.getElementById('connBadge');
-const connText = document.getElementById('connText');
+// The connection badge tile was removed from the UI, but setConnStatus is
+// still called from a few places below to log the state — harmless no-op
+// now that its DOM elements don't exist.
 function setConnStatus(ok, label){
-  connBadge.classList.toggle('ok', ok);
-  connText.textContent = label;
+  if(!sb && !ok) console.warn(label);
 }
-if(!sb){
-  setConnStatus(false, 'Supabase not configured — edit index.html');
-} else {
-  setConnStatus(true, 'Live (Supabase) — read-only');
-}
+setConnStatus(!!sb, sb ? 'Live (Supabase) — read-only' : 'Supabase not configured — edit index.html');
 
 // ---------- Auth: read is public, write needs an account you created yourself ----------
 // (Supabase dashboard > Authentication > Users > Add user — this page has no
@@ -367,6 +384,54 @@ function openSignin(){
 function closeSignin(){ signinOverlay.hidden = true; }
 document.getElementById('signinClose').addEventListener('click', closeSignin);
 signinOverlay.addEventListener('click', e=>{ if(e.target===signinOverlay) closeSignin(); });
+
+// ---------- Defect Analysis drill-down modal ----------
+// One modal, two row shapes: 'defects' (raw VIN-wise defect entries — from a
+// station bar or a "most frequent defect" row) or 'units' (VIN + defect count
+// — from a KPI tile), the latter clickable through to that VIN's own card.
+const defectDetailOverlay = document.getElementById('defectDetailOverlay');
+function closeDefectDetail(){ defectDetailOverlay.hidden = true; }
+document.getElementById('defectDetailClose').addEventListener('click', closeDefectDetail);
+defectDetailOverlay.addEventListener('click', e=>{ if(e.target===defectDetailOverlay) closeDefectDetail(); });
+
+function openDefectDetail(title, desc, mode, rows){
+  document.getElementById('defectDetailTitle').textContent = title;
+  document.getElementById('defectDetailDesc').textContent = desc || '';
+  const head = document.getElementById('defectDetailHead');
+  const body = document.getElementById('defectDetailBody');
+  if(mode === 'defects'){
+    head.innerHTML = '<tr><th>VIN</th><th>Station</th><th>Defect</th><th>Date</th></tr>';
+    body.innerHTML = rows.length ? rows.map(d=>{
+      const u = ALL_UNITS.find(x=>x.vinSuffix===d[0]);
+      return `<tr class="detail-row" data-vin="${u?u.vin:''}" data-sr="${u?u.sr:''}">
+        <td><span class="vin">${u?u.vin:d[0]}</span></td>
+        <td>${d[1]}</td>
+        <td>${d[2]}</td>
+        <td>${fmtDate(xl(d[3]))}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="4"><div class="emptynote">Nothing here.</div></td></tr>';
+  } else { // 'units'
+    head.innerHTML = '<tr><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr>';
+    body.innerHTML = rows.length ? rows.map(r=>{
+      const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
+      return `<tr class="detail-row" data-vin="${r.u?r.u.vin:''}" data-sr="${r.u?r.u.sr:''}">
+        <td><span class="vin">${r.u ? r.u.vin : r.vinSuffix}</span></td>
+        <td>${swatch}${r.u ? (r.u.colorCode||'') : ''}</td>
+        <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
+        <td>${r.count}</td>
+      </tr>`;
+    }).join('') : '<tr><td colspan="4"><div class="emptynote">Nothing here.</div></td></tr>';
+  }
+  body.querySelectorAll('tr[data-sr]').forEach(tr=>{
+    if(!tr.dataset.sr) return;
+    tr.addEventListener('click', ()=>{
+      closeDefectDetail();
+      tabbarEl.querySelector('[data-tab="roster"]').click();
+      openDrawer(tr.dataset.vin, +tr.dataset.sr);
+    });
+  });
+  defectDetailOverlay.hidden = false;
+}
 document.getElementById('signinSubmit').addEventListener('click', async ()=>{
   if(!sb) return;
   const email = signinEmail.value.trim();
@@ -405,86 +470,86 @@ if(!sb) renderAuthArea();
 // Source: LX3 Data.xlsx (added 26-Sep-2026) — supersedes EXPORT_20260926_095113.xlsx,
 // which never carried Body/Paint/TCF actual finish dates for this batch.
 const ROWS = [
-[1,"PMHRM81ASTN900001","LX000101","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
-[2,"PMHRM81ASTN900002","LX000102","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
-[3,"PMHRM81ASTN900003","LX000103","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269],
-[4,"PMHRM81ASTN900004","LX000104","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269],
-[5,"PMHRM81ASTN900005","LX000105","NBA","Phantom Black","4010",46259,46259,46259,46259,46259,46265,null],
-[6,"PMHRM81ASTN900006","LX000106","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
-[7,"PMHRM81ASTN900007","LX000107","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
-[8,"PMHRM81ASTN900008","LX000108","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269],
-[9,"PMHRM81ASTN900009","LX000109","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269],
-[10,"PMHRM81ASTN900010","LX000110","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46268,46269],
-[11,"PMHRM81ASTN900011","LX000111","R8N","Robust Emerald Green","USTK",46259,46259,46269,46259,46280,46282,46282],
-[12,"PMHRM81ASTN900012","LX000112","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46267,46269],
-[13,"PMHRM81ASTN900013","LX000113","WYW","Polar White.","USTK",46259,46259,46259,46259,46261,46269,46272],
-[14,"PMHRM81ASTN900014","LX000114","WYW","Polar White.","USTK",46259,46259,46259,46259,46266,46272,46272],
-[15,"PMHRM81ASTN900015","LX000115","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46269,46269],
-[16,"PMHRM81ASTN900016","LX000116","SMH","Silver Metallic","USTK",46259,46259,46259,46259,46259,46269,46269],
-[17,"PMHRM81ASTN900017","LX000117","NT2","Hampton Gray","USTK",46259,46259,46259,46259,46260,46269,46272],
-[18,"PMHRM81ASTN900018","LX000118","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272],
-[19,"PMHRM81ASTN900019","LX000119","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272],
-[20,"PMHRM81ASTN900020","LX000120","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269],
-[21,"PMHRM81ASTN900021","LX000121","R8N","Robust Emerald Green","3010",46259,46259,46275,46259,null,null,null],
-[22,"PMHRM81ASTN900022","LX000122","NBA","Phantom Black","USTK",46259,46259,46259,46259,46267,46269,46272],
-[23,"PMHRM81ASTN900023","LX000123","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46269,46272],
-[24,"PMHRM81ASTN900024","LX000124","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46268,46272],
-[25,"PMHRM81ASTN900025","LX000125","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272],
-[26,"PMHRM81ASTN900026","LX000126","NBA","Phantom Black","USTK",46259,46259,46259,46259,46269,46272,46272],
-[27,"PMHRM81ASTN900027","LX000127","NBA","Phantom Black","USTK",46259,46259,46259,46259,46269,46272,46272],
-[28,"PMHRM81ASTN900028","LX000128","NBA","Phantom Black","USTK",46259,46259,46259,46259,46261,46269,46272],
-[29,"PMHRM81ASTN900029","LX000129","WYW","Polar White.","USTK",46259,46259,46269,46259,46272,46273,46273],
-[30,"PMHRM81ASTN900030","LX000130","WYW","Polar White.","USTK",46259,46259,46269,46259,46272,46272,46273],
-[31,"PMHRM81ASTN900091","LX000201","WYW","Polar White.","4010",46280,46281,46289,46280,46289,46290,null],
-[32,"PMHRM81ASTN900092","LX000202","WYW","Polar White.","4010",46281,46282,46289,46280,46289,46290,null],
-[33,"PMHRM81ASTN900093","LX000203","NBA","Phantom Black","4010",46283,46286,46289,46280,46290,46290,null],
-[34,"PMHRM81ASTN900094","LX000204","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null],
-[35,"PMHRM81ASTN900095","LX000205","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null],
-[36,"PMHRM81ASTN900096","LX000206","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null],
-[37,"PMHRM81ASTN900097","LX000207","NBA","Phantom Black","4000",46283,46283,46289,46282,46289,null,null],
-[38,"PMHRM81ASTN900098","LX000208","NBA","Phantom Black","3010",46287,46288,46289,46282,null,null,null],
-[39,"PMHRM81ASTN900099","LX000209","R8N","Robust Emerald Green","3010",46287,46288,46289,46287,null,null,null],
-[40,"PMHRM81ASTN900100","LX000210","WYW","Polar White.","4010",46287,46287,46289,46287,46289,46290,null],
-[41,"PMHRM81ASTN900101","LX000211","WYW","Polar White.","4010",46287,46287,46289,46287,46289,46289,null],
-[42,"PMHRM81ASTN900102","LX000212","WYW","Polar White.","4000",46287,46287,46289,46287,46289,null,null],
-[43,"PMHRM81ASTN900103","LX000213","NBA","Phantom Black","3010",46287,46287,46289,46287,null,null,null],
-[44,"PMHRM81ASTN900104","LX000214","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
-[45,"PMHRM81ASTN900105","LX000215","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
-[46,"PMHRM81ASTN900106","LX000216","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null],
-[47,"PMHRM81ASTN900107","LX000217","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null],
-[48,"PMHRM81ASTN900108","LX000218","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
-[49,"PMHRM81ASTN900109","LX000219","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null],
-[50,"PMHRM81ASTN900110","LX000220","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null],
-[51,"PMHRM81ASTN900111","LX000221","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
-[52,"PMHRM81ASTN900112","LX000222","NBA","Phantom Black","4010",46287,46288,46289,46287,46290,46290,null],
-[53,"PMHRM81ASTN900113","LX000223","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
-[54,"PMHRM81ASTN900114","LX000224","WYW","Polar White.","4000",46287,46288,46289,46287,46290,null,null],
-[55,"PMHRM81ASTN900115","LX000225","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null],
-[56,"PMHRM81ASTN900116","LX000226","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null],
-[57,"PMHRM81ASTN900117","LX000227","NBA","Phantom Black","4010",46287,46288,46289,46287,46290,46290,null],
-[58,"PMHRM81ASTN900118","LX000228","NBA","Phantom Black","3010",46287,46288,46289,46287,null,null,null],
-[59,"PMHRM81ASTN900119","LX000229","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null],
-[60,"PMHRM81ASTN900120","LX000230","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null],
-[61,"PMHRM81ASTN900121","LX000301","WYW","Polar White.","3010",46288,46288,46289,46288,null,null,null],
-[62,"PMHRM81ASTN900122","LX000302","WYW","Polar White.","2010",46290,46290,null,46288,null,null,null],
-[63,"PMHRM81ASTN900123","LX000303","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null],
-[64,"PMHRM81ASTN900124","LX000304",null,null,"2000",46290,null,null,46288,null,null,null],
-[65,"PMHRM81ASTN900125","LX000305","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null],
-[66,"PMHRM81ASTN900126","LX000306",null,null,"2000",46290,null,null,46288,null,null,null],
-[67,"PMHRM81ASTN900127","LX000307",null,null,"2000",46290,null,null,46288,null,null,null],
-[68,"PMHRM81ASTN900128","LX000308",null,null,"2000",46290,null,null,46288,null,null,null],
-[69,"PMHRM81ASTN900129","LX000309",null,null,"2000",46290,null,null,46288,null,null,null],
-[70,"PMHRM81ASTN900130","LX000310","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null],
-[71,"PMHRM81ASTN900131","LX000311","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null],
-[72,"PMHRM81ASTN900132","LX000312",null,null,"2000",46290,null,null,46288,null,null,null],
-[73,null,"LX000313",null,null,"PLAN",null,null,null,46288,null,null,null],
-[74,null,"LX000314",null,null,"PLAN",null,null,null,46288,null,null,null],
-[75,null,"LX000315",null,null,"PLAN",null,null,null,46288,null,null,null],
-[76,null,"LX000316",null,null,"PLAN",null,null,null,46291,null,null,null],
-[77,null,"LX000317",null,null,"PLAN",null,null,null,46291,null,null,null],
-[78,null,"LX000318",null,null,"PLAN",null,null,null,46291,null,null,null],
-[79,null,"LX000319",null,null,"PLAN",null,null,null,46291,null,null,null],
-[80,null,"LX000320",null,null,"PLAN",null,null,null,46291,null,null,null],
+[1,"PMHRM81ASTN900001","LX000101","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[2,"PMHRM81ASTN900002","LX000102","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[3,"PMHRM81ASTN900003","LX000103","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[4,"PMHRM81ASTN900004","LX000104","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[5,"PMHRM81ASTN900005","LX000105","NBA","Phantom Black","4010",46259,46259,46259,46259,46259,46265,null,null,null,null],
+[6,"PMHRM81ASTN900006","LX000106","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[7,"PMHRM81ASTN900007","LX000107","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[8,"PMHRM81ASTN900008","LX000108","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[9,"PMHRM81ASTN900009","LX000109","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[10,"PMHRM81ASTN900010","LX000110","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46268,46269,null,null,null],
+[11,"PMHRM81ASTN900011","LX000111","R8N","Robust Emerald Green","USTK",46259,46259,46269,46259,46280,46282,46282,null,null,null],
+[12,"PMHRM81ASTN900012","LX000112","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46267,46269,null,null,null],
+[13,"PMHRM81ASTN900013","LX000113","WYW","Polar White.","USTK",46259,46259,46259,46259,46261,46269,46272,null,null,null],
+[14,"PMHRM81ASTN900014","LX000114","WYW","Polar White.","USTK",46259,46259,46259,46259,46266,46272,46272,null,null,null],
+[15,"PMHRM81ASTN900015","LX000115","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46269,46269,null,null,null],
+[16,"PMHRM81ASTN900016","LX000116","SMH","Silver Metallic","USTK",46259,46259,46259,46259,46259,46269,46269,null,null,null],
+[17,"PMHRM81ASTN900017","LX000117","NT2","Hampton Gray","USTK",46259,46259,46259,46259,46260,46269,46272,null,null,null],
+[18,"PMHRM81ASTN900018","LX000118","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272,null,null,null],
+[19,"PMHRM81ASTN900019","LX000119","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272,null,null,null],
+[20,"PMHRM81ASTN900020","LX000120","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46265,46269,null,null,null],
+[21,"PMHRM81ASTN900021","LX000121","R8N","Robust Emerald Green","3010",46259,46259,46275,46259,null,null,null,null,null,null],
+[22,"PMHRM81ASTN900022","LX000122","NBA","Phantom Black","USTK",46259,46259,46259,46259,46267,46269,46272,null,null,null],
+[23,"PMHRM81ASTN900023","LX000123","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46269,46272,null,null,null],
+[24,"PMHRM81ASTN900024","LX000124","NBA","Phantom Black","USTK",46259,46259,46259,46259,46259,46268,46272,null,null,null],
+[25,"PMHRM81ASTN900025","LX000125","WYW","Polar White.","USTK",46259,46259,46259,46259,46259,46265,46272,null,null,null],
+[26,"PMHRM81ASTN900026","LX000126","NBA","Phantom Black","USTK",46259,46259,46259,46259,46269,46272,46272,null,null,null],
+[27,"PMHRM81ASTN900027","LX000127","NBA","Phantom Black","USTK",46259,46259,46259,46259,46269,46272,46272,null,null,null],
+[28,"PMHRM81ASTN900028","LX000128","NBA","Phantom Black","USTK",46259,46259,46259,46259,46261,46269,46272,null,null,null],
+[29,"PMHRM81ASTN900029","LX000129","WYW","Polar White.","USTK",46259,46259,46269,46259,46272,46273,46273,null,null,null],
+[30,"PMHRM81ASTN900030","LX000130","WYW","Polar White.","USTK",46259,46259,46269,46259,46272,46272,46273,null,null,null],
+[31,"PMHRM81ASTN900091","LX000201","WYW","Polar White.","4010",46280,46281,46289,46280,46289,46290,null,null,null,null],
+[32,"PMHRM81ASTN900092","LX000202","WYW","Polar White.","4010",46281,46282,46289,46280,46289,46290,null,null,null,null],
+[33,"PMHRM81ASTN900093","LX000203","NBA","Phantom Black","4010",46283,46286,46289,46280,46290,46290,null,null,null,null],
+[34,"PMHRM81ASTN900094","LX000204","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null,null,null,null],
+[35,"PMHRM81ASTN900095","LX000205","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null,null,null,null],
+[36,"PMHRM81ASTN900096","LX000206","NBA","Phantom Black","4000",46282,46283,46289,46282,46290,null,null,null,null,null],
+[37,"PMHRM81ASTN900097","LX000207","NBA","Phantom Black","4000",46283,46283,46289,46282,46289,null,null,null,null,null],
+[38,"PMHRM81ASTN900098","LX000208","NBA","Phantom Black","3010",46287,46288,46289,46282,null,null,null,null,null,null],
+[39,"PMHRM81ASTN900099","LX000209","R8N","Robust Emerald Green","3010",46287,46288,46289,46287,null,null,null,null,null,null],
+[40,"PMHRM81ASTN900100","LX000210","WYW","Polar White.","4010",46287,46287,46289,46287,46289,46290,null,null,null,null],
+[41,"PMHRM81ASTN900101","LX000211","WYW","Polar White.","4010",46287,46287,46289,46287,46289,46289,null,null,null,null],
+[42,"PMHRM81ASTN900102","LX000212","WYW","Polar White.","4000",46287,46287,46289,46287,46289,null,null,null,null,null],
+[43,"PMHRM81ASTN900103","LX000213","NBA","Phantom Black","3010",46287,46287,46289,46287,null,null,null,null,null,null],
+[44,"PMHRM81ASTN900104","LX000214","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null,null,null,null],
+[45,"PMHRM81ASTN900105","LX000215","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null,null,null,null],
+[46,"PMHRM81ASTN900106","LX000216","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null,null,null,null],
+[47,"PMHRM81ASTN900107","LX000217","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null,null,null,null],
+[48,"PMHRM81ASTN900108","LX000218","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null,null,null,null],
+[49,"PMHRM81ASTN900109","LX000219","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null,null,null,null],
+[50,"PMHRM81ASTN900110","LX000220","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null,null,null,null],
+[51,"PMHRM81ASTN900111","LX000221","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null,null,null,null],
+[52,"PMHRM81ASTN900112","LX000222","NBA","Phantom Black","4010",46287,46288,46289,46287,46290,46290,null,null,null,null],
+[53,"PMHRM81ASTN900113","LX000223","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null,null,null,null],
+[54,"PMHRM81ASTN900114","LX000224","WYW","Polar White.","4000",46287,46288,46289,46287,46290,null,null,null,null,null],
+[55,"PMHRM81ASTN900115","LX000225","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null,null,null,null],
+[56,"PMHRM81ASTN900116","LX000226","NBA","Phantom Black","4000",46287,46288,46289,46287,46290,null,null,null,null,null],
+[57,"PMHRM81ASTN900117","LX000227","NBA","Phantom Black","4010",46287,46288,46289,46287,46290,46290,null,null,null,null],
+[58,"PMHRM81ASTN900118","LX000228","NBA","Phantom Black","3010",46287,46288,46289,46287,null,null,null,null,null,null],
+[59,"PMHRM81ASTN900119","LX000229","WYW","Polar White.","3010",46287,46288,46289,46287,null,null,null,null,null,null],
+[60,"PMHRM81ASTN900120","LX000230","WYW","Polar White.","4000",46287,46288,46289,46287,46291,null,null,null,null,null],
+[61,"PMHRM81ASTN900121","LX000301","WYW","Polar White.","3010",46288,46288,46289,46288,null,null,null,null,null,null],
+[62,"PMHRM81ASTN900122","LX000302","WYW","Polar White.","2010",46290,46290,null,46288,null,null,null,null,null,null],
+[63,"PMHRM81ASTN900123","LX000303","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null,null,null,null],
+[64,"PMHRM81ASTN900124","LX000304",null,null,"2000",46290,null,null,46288,null,null,null,null,null,null],
+[65,"PMHRM81ASTN900125","LX000305","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null,null,null,null],
+[66,"PMHRM81ASTN900126","LX000306",null,null,"2000",46290,null,null,46288,null,null,null,null,null,null],
+[67,"PMHRM81ASTN900127","LX000307",null,null,"2000",46290,null,null,46288,null,null,null,null,null,null],
+[68,"PMHRM81ASTN900128","LX000308",null,null,"2000",46290,null,null,46288,null,null,null,null,null,null],
+[69,"PMHRM81ASTN900129","LX000309",null,null,"2000",46290,null,null,46288,null,null,null,null,null,null],
+[70,"PMHRM81ASTN900130","LX000310","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null,null,null,null],
+[71,"PMHRM81ASTN900131","LX000311","NBA","Phantom Black","3000",46290,46290,null,46288,null,null,null,null,null,null],
+[72,"PMHRM81ASTN900132","LX000312",null,null,"2000",46290,null,null,46288,null,null,null,null,null,null],
+[73,null,"LX000313",null,null,"PLAN",null,null,null,46288,null,null,null,null,null,null],
+[74,null,"LX000314",null,null,"PLAN",null,null,null,46288,null,null,null,null,null,null],
+[75,null,"LX000315",null,null,"PLAN",null,null,null,46288,null,null,null,null,null,null],
+[76,null,"LX000316",null,null,"PLAN",null,null,null,46291,null,null,null,null,null,null],
+[77,null,"LX000317",null,null,"PLAN",null,null,null,46291,null,null,null,null,null,null],
+[78,null,"LX000318",null,null,"PLAN",null,null,null,46291,null,null,null,null,null,null],
+[79,null,"LX000319",null,null,"PLAN",null,null,null,46291,null,null,null,null,null,null],
+[80,null,"LX000320",null,null,"PLAN",null,null,null,46291,null,null,null,null,null,null],
 ];
 
 // Seed data for the VQ checklist, taken from the 25-Sep-2026 PDF sheet, keyed
@@ -712,7 +777,7 @@ function fmtDate(d){ if(!d) return "—"; return d.toLocaleDateString('en-GB',{d
 const TODAY = new Date(); // real "today" in a live deployment, unlike the fixed snapshot date used while this was a static artifact
 
 const ALL_UNITS = ROWS.map(r=>{
-  const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us] = r;
+  const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
   const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
   const vinSuffix = vin ? vin.slice(-6) : null;
   let wipDays = null;
@@ -720,7 +785,9 @@ const ALL_UNITS = ROWS.map(r=>{
     wipDays = Math.floor((TODAY - xl(bi)) / 86400000);
   }
   return {sr,vin,vinSuffix,batch,colorCode,colorDesc,statusCode,stage,
-    bodyFin:xl(bodyFin), paintFin:xl(paintFin), tcfFin:xl(tcfFin),
+    bodyStart:xl(bodyStart), bodyFin:xl(bodyFin),
+    paintStart:xl(paintStart), paintFin:xl(paintFin),
+    tcfStart:xl(tcfStart), tcfFin:xl(tcfFin),
     biInsp:xl(bi), aiInsp:xl(ai), afInsp:xl(af), ustk:xl(us), wipDays};
 });
 
@@ -768,7 +835,7 @@ function renderKPIs(){
 const stagePickerEl = document.getElementById('stagePicker');
 const scopeBodyEl = document.getElementById('scopeBody');
 const scopeToggleBtn = document.getElementById('scopeToggle');
-let scopeCollapsed = (()=>{ try{ return localStorage.getItem('lx3_scope_collapsed')==='1'; }catch(e){ return false; } })();
+let scopeCollapsed = (()=>{ try{ const v = localStorage.getItem('lx3_scope_collapsed'); return v===null ? true : v==='1'; }catch(e){ return true; } })();
 function applyScopeCollapsed(){
   scopeBodyEl.hidden = scopeCollapsed;
   scopeToggleBtn.textContent = scopeCollapsed ? '+' : '−';
@@ -1128,44 +1195,75 @@ tabbarEl.addEventListener('click', e=>{
 const DEFECT_STATIONS = [...new Set(DEFECTS.map(d=>d[1]))];
 function renderAnalysis(){
   const vinsWithDefects = new Set(DEFECTS.map(d=>d[0]));
-
-  document.getElementById('defectKpis').innerHTML = [
-    {n: DEFECTS.length, l:"Total defects logged", cls:""},
-    {n: INSPECTED_VINS.size, l:"Units inspected (this report)", cls:""},
-    {n: vinsWithDefects.size, l:"Units with &ge;1 defect", cls:"warn"},
-    {n: Math.max(0,INSPECTED_VINS.size - vinsWithDefects.size), l:"Clean units (0 defects)", cls:"good"},
-    {n: (DEFECTS.length/Math.max(1,vinsWithDefects.size)).toFixed(1), l:"Avg. defects / affected unit", cls:"accent"},
-  ].map(k=>`<div class="kpi ${k.cls}"><div class="n">${k.n}</div><div class="l">${k.l}</div></div>`).join('');
-
-  const byStation = DEFECT_STATIONS.map(s=>({label:s, count:DEFECTS.filter(d=>d[1]===s).length}))
-    .sort((a,b)=>b.count-a.count);
-  const maxStation = Math.max(1, ...byStation.map(s=>s.count));
-  document.getElementById('defectByProcess').innerHTML = byStation.map(s=>{
-    const pct = Math.max(4, Math.round(s.count/maxStation*100));
-    return `<div class="frow">
-      <div class="lbl">${s.label}</div>
-      <div class="ftrack"><div class="ffill" style="width:${pct}%;background:var(--bad)"></div></div>
-      <div class="cnt">${s.count}</div>
-    </div>`;
-  }).join('');
-
-  const byDesc = {};
-  DEFECTS.forEach(d=>{
-    const key = d[2].trim().toUpperCase();
-    if(!byDesc[key]) byDesc[key] = {desc:d[2], station:d[1], count:0};
-    byDesc[key].count++;
-  });
-  const topDefects = Object.values(byDesc).sort((a,b)=>b.count-a.count).slice(0,15);
-  document.getElementById('topDefectsBody').innerHTML = topDefects.map(t=>
-    `<tr><td>${t.desc}</td><td>${t.station}</td><td>${t.count}</td></tr>`
-  ).join('') || `<tr><td colspan="3"><div class="emptynote">No defects recorded.</div></td></tr>`;
-
   const byVin = {};
   DEFECTS.forEach(d=>{ byVin[d[0]] = (byVin[d[0]]||0) + 1; });
   const vinRows = [...INSPECTED_VINS].map(vinSuffix=>{
     const u = ALL_UNITS.find(x=>x.vinSuffix===vinSuffix);
     return {u, vinSuffix, count: byVin[vinSuffix]||0};
   }).sort((a,b)=>b.count-a.count);
+
+  // ---- KPI tiles: each opens the matching slice of units/defects ----
+  const kpiDefs = [
+    {n: DEFECTS.length, l:"Total defects logged", cls:"",
+      onOpen: ()=>openDefectDetail('All defects', `${DEFECTS.length} defects across ${vinsWithDefects.size} units`, 'defects', DEFECTS)},
+    {n: INSPECTED_VINS.size, l:"Units inspected (this report)", cls:"",
+      onOpen: ()=>openDefectDetail('Units inspected', `${INSPECTED_VINS.size} units covered by the VIN-wise defect report`, 'units', vinRows)},
+    {n: vinsWithDefects.size, l:"Units with &ge;1 defect", cls:"warn",
+      onOpen: ()=>openDefectDetail('Units with a defect', `${vinsWithDefects.size} units`, 'units', vinRows.filter(r=>r.count>0))},
+    {n: Math.max(0,INSPECTED_VINS.size - vinsWithDefects.size), l:"Clean units (0 defects)", cls:"good",
+      onOpen: ()=>openDefectDetail('Clean units', 'Inspected with zero logged defects', 'units', vinRows.filter(r=>r.count===0))},
+    {n: (DEFECTS.length/Math.max(1,vinsWithDefects.size)).toFixed(1), l:"Avg. defects / affected unit", cls:"accent",
+      onOpen: ()=>openDefectDetail('Units with a defect', 'Sorted worst-first — this is what the average is computed over', 'units', vinRows.filter(r=>r.count>0))},
+  ];
+  const kpisEl2 = document.getElementById('defectKpis');
+  kpisEl2.innerHTML = kpiDefs.map((k,i)=>
+    `<div class="kpi ${k.cls}" data-i="${i}" tabindex="0" role="button"><div class="n">${k.n}</div><div class="l">${k.l}</div></div>`
+  ).join('');
+  kpisEl2.querySelectorAll('.kpi').forEach(el=>{
+    const open = kpiDefs[+el.dataset.i].onOpen;
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
+  });
+
+  // ---- Defects by inspection station: each bar opens that station's defects ----
+  const byStation = DEFECT_STATIONS.map(s=>({label:s, count:DEFECTS.filter(d=>d[1]===s).length}))
+    .sort((a,b)=>b.count-a.count);
+  const maxStation = Math.max(1, ...byStation.map(s=>s.count));
+  const processEl = document.getElementById('defectByProcess');
+  processEl.innerHTML = byStation.map((s,i)=>{
+    const pct = Math.max(4, Math.round(s.count/maxStation*100));
+    return `<div class="frow" data-i="${i}" tabindex="0" role="button" style="cursor:pointer">
+      <div class="lbl">${s.label}</div>
+      <div class="ftrack"><div class="ffill" style="width:${pct}%;background:var(--bad)"></div></div>
+      <div class="cnt">${s.count}</div>
+    </div>`;
+  }).join('');
+  processEl.querySelectorAll('.frow').forEach(el=>{
+    const s = byStation[+el.dataset.i];
+    const open = ()=>openDefectDetail(s.label, `${s.count} defects logged at this station`, 'defects', DEFECTS.filter(d=>d[1]===s.label));
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
+  });
+
+  // ---- Most frequent defects: each row opens every unit with that exact defect ----
+  const byDesc = {};
+  DEFECTS.forEach(d=>{
+    const key = d[2].trim().toUpperCase();
+    if(!byDesc[key]) byDesc[key] = {desc:d[2], station:d[1], count:0, rows:[]};
+    byDesc[key].count++;
+    byDesc[key].rows.push(d);
+  });
+  const topDefects = Object.values(byDesc).sort((a,b)=>b.count-a.count).slice(0,15);
+  const topDefectsBody = document.getElementById('topDefectsBody');
+  topDefectsBody.innerHTML = topDefects.map((t,i)=>
+    `<tr class="detail-row" data-i="${i}"><td>${t.desc}</td><td>${t.station}</td><td>${t.count}</td></tr>`
+  ).join('') || `<tr><td colspan="3"><div class="emptynote">No defects recorded.</div></td></tr>`;
+  topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
+    const t = topDefects[+tr.dataset.i];
+    tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows));
+  });
+
+  // ---- Defects by unit (unchanged: click straight through to that VIN's card) ----
   document.getElementById('defectsByVinBody').innerHTML = vinRows.map(r=>{
     const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
     return `<tr data-vin="${r.u?r.u.vin:''}" data-sr="${r.u?r.u.sr:''}">
@@ -1186,26 +1284,35 @@ function renderAnalysis(){
 }
 
 // ---------- production report ----------
-// Metrics as rows, dates as columns. Body/Paint/TCF Out prefer the real ERP
-// finish date (LX3 Data.xlsx); a unit only falls back to its tapped milestone
-// date when the ERP value is still blank. QC OK is the same event as
-// Inspection Out, so there's a single Inspection Out row, not two.
+// Metrics as rows, dates as columns, in process order. Body/Paint/TCF Out
+// prefer the real ERP finish date (LX3 Data.xlsx); a unit only falls back to
+// its tapped milestone date when the ERP value is still blank. Body/Paint/TCF
+// In and VQ In are read straight from the ERP "Actual Start" columns —
+// Actual Start(Body/Paint/TCF/Insp) are exactly Body/Paint/TCF/VQ in dates —
+// there's no shop-floor-tap fallback for those since the ERP always has them
+// once a unit has actually reached that stage. QC OK is the same event as
+// VQ OK (Inspection Out), so there's a single row for it, not two.
 const REPORT_METRICS = [
+  {key:"bodyIn", label:"Body In"},
   {key:"bodyOut", label:"Body Out"},
+  {key:"paintIn", label:"Paint In"},
   {key:"paintOut", label:"Paint Out"},
+  {key:"tcfIn", label:"TCF In"},
   {key:"tcfOut", label:"TCF Out"},
-  {key:"inspectionOut", label:"Inspection Out"},
+  {key:"inspectionIn", label:"VQ In"},
+  {key:"inspectionOut", label:"VQ OK"},
 ];
+const REPORT_KEYS = REPORT_METRICS.map(m=>m.key);
 
 function dateKey(d){ return d ? d.toISOString().slice(0,10) : null; }
 
 async function loadReport(){
   const bodyEl = document.getElementById('reportBody');
   bodyEl.innerHTML = '<div class="emptynote">Loading&hellip;</div>';
-  const counts = {}; // 'YYYY-MM-DD' -> {bodyOut,paintOut,tcfOut,inspectionOut}
+  const counts = {}; // 'YYYY-MM-DD' -> {bodyIn,bodyOut,paintIn,paintOut,tcfIn,tcfOut,inspectionIn,inspectionOut}
   function bump(dateStr, field){
     if(!dateStr) return;
-    if(!counts[dateStr]) counts[dateStr] = {bodyOut:0,paintOut:0,tcfOut:0,inspectionOut:0};
+    if(!counts[dateStr]) counts[dateStr] = Object.fromEntries(REPORT_KEYS.map(k=>[k,0]));
     counts[dateStr][field]++;
   }
 
@@ -1219,9 +1326,13 @@ async function loadReport(){
 
   ALL_UNITS.forEach(u=>{
     const m = (u.vin && rowsByVin[u.vin]) || {};
+    bump(dateKey(u.bodyStart), 'bodyIn');
     bump(u.bodyFin ? dateKey(u.bodyFin) : (m.body_out||null), 'bodyOut');
+    bump(dateKey(u.paintStart), 'paintIn');
     bump(u.paintFin ? dateKey(u.paintFin) : (m.paint_out||null), 'paintOut');
+    bump(dateKey(u.tcfStart), 'tcfIn');
     bump(u.tcfFin ? dateKey(u.tcfFin) : (m.tcf_out||null), 'tcfOut');
+    bump(dateKey(u.aiInsp), 'inspectionIn');
     bump(dateKey(u.afInsp), 'inspectionOut');
   });
 
@@ -1273,7 +1384,8 @@ async function loadProductionFromSupabase(){
   if(!data || !data.length) return null;
   data.sort((a,b)=>(a.batch||'').localeCompare(b.batch||''));
   return data.map((r,i)=>[i+1, r.vin, r.batch, r.color_code, r.color_desc, r.status_code,
-    r.body_fin, r.paint_fin, r.tcf_fin, r.basic_insp, r.actual_insp, r.act_fin_insp, r.ustk]);
+    r.body_fin, r.paint_fin, r.tcf_fin, r.basic_insp, r.actual_insp, r.act_fin_insp, r.ustk,
+    r.body_start, r.paint_start, r.tcf_start]);
 }
 async function loadDefectsFromSupabase(){
   if(!sb) return null;
@@ -1283,13 +1395,15 @@ async function loadDefectsFromSupabase(){
 }
 function rebuildAllUnits(){
   const mapped = ROWS.map(r=>{
-    const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us] = r;
+    const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
     const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
     const vinSuffix = vin ? vin.slice(-6) : null;
     let wipDays = null;
     if(vin && statusCode!=="USTK" && bi!=null){ wipDays = Math.floor((TODAY - xl(bi)) / 86400000); }
     return {sr,vin,vinSuffix,batch,colorCode,colorDesc,statusCode,stage,
-      bodyFin:xl(bodyFin), paintFin:xl(paintFin), tcfFin:xl(tcfFin),
+      bodyStart:xl(bodyStart), bodyFin:xl(bodyFin),
+      paintStart:xl(paintStart), paintFin:xl(paintFin),
+      tcfStart:xl(tcfStart), tcfFin:xl(tcfFin),
       biInsp:xl(bi), aiInsp:xl(ai), afInsp:xl(af), ustk:xl(us), wipDays};
   });
   ALL_UNITS.length = 0;
@@ -1375,8 +1489,11 @@ wireUpload('uploadProduction', 'uploadProductionStatus', {
       color_code: r[11] || null,
       color_desc: r[13] || null,
       status_code: r[18] || null,
+      body_start: r[21] || null,
       body_fin: r[22] || null,
+      paint_start: r[24] || null,
       paint_fin: r[25] || null,
+      tcf_start: r[27] || null,
       tcf_fin: r[28] || null,
       basic_insp: r[29] || null,
       actual_insp: r[30] || null,
