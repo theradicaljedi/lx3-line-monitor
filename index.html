@@ -45,7 +45,9 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .wrap{max-width:1280px;margin:0 auto;padding:20px 20px 64px}
 .hdr{display:flex;flex-wrap:nowrap;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
 .hdr-title{min-width:0}
-.hdr-actions{flex:none}
+.hdr-actions{flex:none;display:flex;align-items:center;gap:8px}
+.iconbtn{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:5px 12px;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap}
+.iconbtn:hover{color:var(--ink);border-color:var(--accent)}
 .hdr h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;letter-spacing:.2px;margin:0 0 2px}
 .hdr .sub{color:var(--muted);font-size:13px}
 .hdr .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:6px}
@@ -215,7 +217,40 @@ tbody tr:last-child td{border-bottom:none}
       <h1>LX3 Palisade HEV &mdash; Line Monitor</h1>
     </div>
     <div class="hdr-actions">
+      <button type="button" class="iconbtn" id="scopeBtn" title="Choose which stages count as in-scope">Scope</button>
+      <button type="button" class="iconbtn" id="uploadBtn" title="Upload production/defect data" hidden>Upload</button>
       <div id="authArea"></div>
+    </div>
+  </div>
+
+  <div id="scopeModalOverlay" class="signin-overlay" hidden>
+    <div class="signin-box">
+      <div class="signin-hdr">
+        <h3>Monitoring scope</h3>
+        <button type="button" class="closebtn" id="scopeModalClose">&times;</button>
+      </div>
+      <div class="desc">Choose which Excel Status Text stages count as "in monitoring" &mdash; drives the top tiles and the roster below.</div>
+      <div class="stagepicker" id="stagePicker"></div>
+    </div>
+  </div>
+
+  <div id="uploadModalOverlay" class="signin-overlay" hidden>
+    <div class="signin-box">
+      <div class="signin-hdr">
+        <h3>Upload data</h3>
+        <button type="button" class="closebtn" id="uploadModalClose">&times;</button>
+      </div>
+      <div class="desc">Uploading a file <strong>replaces</strong> the current production roster or defect report entirely &mdash; everyone viewing this page sees the new data immediately.</div>
+      <div class="uploadrow">
+        <div class="uploadlbl">LX3 Production Data <span class="emptynote">(LX3 Data.xlsx)</span></div>
+        <label class="filebtn">Choose file<input type="file" id="uploadProduction" accept=".xlsx"></label>
+        <span id="uploadProductionStatus" class="emptynote"></span>
+      </div>
+      <div class="uploadrow">
+        <div class="uploadlbl">LX3 Defect Report <span class="emptynote">(LX3 defect report.xlsx)</span></div>
+        <label class="filebtn">Choose file<input type="file" id="uploadDefects" accept=".xlsx"></label>
+        <span id="uploadDefectsStatus" class="emptynote"></span>
+      </div>
     </div>
   </div>
 
@@ -264,31 +299,6 @@ tbody tr:last-child td{border-bottom:none}
 
   <div id="tabRoster">
     <div class="kpis" id="kpis"></div>
-
-    <div class="panel" id="dataAdminPanel" hidden>
-      <h2>Upload data <button type="button" class="collapsebtn" id="uploadToggle" aria-expanded="false" aria-controls="uploadBody">+</button></h2>
-      <div id="uploadBody">
-        <div class="desc">Uploading a file <strong>replaces</strong> the current production roster or defect report entirely &mdash; everyone viewing this page sees the new data immediately.</div>
-        <div class="uploadrow">
-          <div class="uploadlbl">LX3 Production Data <span class="emptynote">(LX3 Data.xlsx)</span></div>
-          <label class="filebtn">Choose file<input type="file" id="uploadProduction" accept=".xlsx"></label>
-          <span id="uploadProductionStatus" class="emptynote"></span>
-        </div>
-        <div class="uploadrow">
-          <div class="uploadlbl">LX3 Defect Report <span class="emptynote">(LX3 defect report.xlsx)</span></div>
-          <label class="filebtn">Choose file<input type="file" id="uploadDefects" accept=".xlsx"></label>
-          <span id="uploadDefectsStatus" class="emptynote"></span>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel">
-      <h2>Monitoring scope <button type="button" class="collapsebtn" id="scopeToggle" aria-expanded="true" aria-controls="scopeBody">&minus;</button></h2>
-      <div id="scopeBody">
-        <div class="desc">Choose which Excel Status Text stages count as "in monitoring" &mdash; drives the top tiles and the roster below</div>
-        <div class="stagepicker" id="stagePicker"></div>
-      </div>
-    </div>
 
     <div class="panel">
       <h2>Units</h2>
@@ -413,12 +423,12 @@ const signinPassword = document.getElementById('signinPassword');
 const signinError = document.getElementById('signinError');
 
 function renderAuthArea(){
-  const adminPanel = document.getElementById('dataAdminPanel');
+  const uploadBtnEl = document.getElementById('uploadBtn');
   const authGate = document.getElementById('authGate');
   const mainContent = document.getElementById('mainContent');
   if(!sb){
     authAreaEl.innerHTML = '';
-    if(adminPanel) adminPanel.hidden = true;
+    if(uploadBtnEl) uploadBtnEl.hidden = true;
     authGate.hidden = true; mainContent.hidden = false; // no Supabase configured — nothing to gate behind
     return;
   }
@@ -426,14 +436,14 @@ function renderAuthArea(){
     authAreaEl.innerHTML = `<div class="authuser">${currentSession.user.email} <button type="button" id="signOutBtn">Sign out</button></div>`;
     document.getElementById('signOutBtn').addEventListener('click', async ()=>{ await sb.auth.signOut(); });
     setConnStatus(true, 'Live (Supabase) — signed in');
-    if(adminPanel) adminPanel.hidden = false;
+    if(uploadBtnEl) uploadBtnEl.hidden = false;
     authGate.hidden = true;
     mainContent.hidden = false;
   } else {
     authAreaEl.innerHTML = `<button type="button" class="authbtn" id="signInBtn">Sign in</button>`;
     document.getElementById('signInBtn').addEventListener('click', openSignin);
     setConnStatus(true, 'Live (Supabase) — signed out');
-    if(adminPanel) adminPanel.hidden = true;
+    if(uploadBtnEl) uploadBtnEl.hidden = true;
     authGate.hidden = false;
     mainContent.hidden = true;
   }
@@ -907,38 +917,25 @@ function renderKPIs(){
   });
 }
 
-// ---------- stage picker ----------
+// ---------- stage picker & upload: both live in small header-triggered
+// modals now (top right, next to sign-in) instead of full-width panels,
+// since neither is needed on most visits. ----------
 const stagePickerEl = document.getElementById('stagePicker');
-const scopeBodyEl = document.getElementById('scopeBody');
-const scopeToggleBtn = document.getElementById('scopeToggle');
-let scopeCollapsed = (()=>{ try{ const v = localStorage.getItem('lx3_scope_collapsed'); return v===null ? true : v==='1'; }catch(e){ return true; } })();
-function applyScopeCollapsed(){
-  scopeBodyEl.hidden = scopeCollapsed;
-  scopeToggleBtn.textContent = scopeCollapsed ? '+' : '−';
-  scopeToggleBtn.setAttribute('aria-expanded', String(!scopeCollapsed));
-}
-scopeToggleBtn.addEventListener('click', ()=>{
-  scopeCollapsed = !scopeCollapsed;
-  try{ localStorage.setItem('lx3_scope_collapsed', scopeCollapsed?'1':'0'); }catch(e){}
-  applyScopeCollapsed();
-});
-applyScopeCollapsed();
+const scopeModalOverlay = document.getElementById('scopeModalOverlay');
+const scopeBtn = document.getElementById('scopeBtn');
+function openScopeModal(){ scopeModalOverlay.hidden = false; }
+function closeScopeModal(){ scopeModalOverlay.hidden = true; }
+scopeBtn.addEventListener('click', openScopeModal);
+document.getElementById('scopeModalClose').addEventListener('click', closeScopeModal);
+scopeModalOverlay.addEventListener('click', e=>{ if(e.target===scopeModalOverlay) closeScopeModal(); });
 
-// ---------- upload panel (collapsed by default — not something most visits need open) ----------
-const uploadBodyEl = document.getElementById('uploadBody');
-const uploadToggleBtn = document.getElementById('uploadToggle');
-let uploadCollapsed = (()=>{ try{ const v = localStorage.getItem('lx3_upload_collapsed'); return v===null ? true : v==='1'; }catch(e){ return true; } })();
-function applyUploadCollapsed(){
-  uploadBodyEl.hidden = uploadCollapsed;
-  uploadToggleBtn.textContent = uploadCollapsed ? '+' : '−';
-  uploadToggleBtn.setAttribute('aria-expanded', String(!uploadCollapsed));
-}
-uploadToggleBtn.addEventListener('click', ()=>{
-  uploadCollapsed = !uploadCollapsed;
-  try{ localStorage.setItem('lx3_upload_collapsed', uploadCollapsed?'1':'0'); }catch(e){}
-  applyUploadCollapsed();
-});
-applyUploadCollapsed();
+const uploadModalOverlay = document.getElementById('uploadModalOverlay');
+const uploadBtn = document.getElementById('uploadBtn');
+function openUploadModal(){ uploadModalOverlay.hidden = false; }
+function closeUploadModal(){ uploadModalOverlay.hidden = true; }
+uploadBtn.addEventListener('click', openUploadModal);
+document.getElementById('uploadModalClose').addEventListener('click', closeUploadModal);
+uploadModalOverlay.addEventListener('click', e=>{ if(e.target===uploadModalOverlay) closeUploadModal(); });
 
 function renderStagePicker(){
   stagePickerEl.innerHTML = ALL_STAGES.map(s=>{
