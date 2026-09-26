@@ -46,6 +46,16 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .hdr{display:flex;flex-wrap:nowrap;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:20px}
 .hdr-title{min-width:0}
 .hdr-actions{flex:none;display:flex;align-items:center;gap:8px}
+/* Mobile only — desktop keeps the single nowrap row above untouched. With
+   Scope/Upload/Users/account controls all in the header now, forcing them
+   onto one row on a narrow screen either overflows or crushes the title
+   into a one-word-per-line wrap. Let both wrap onto their own line instead. */
+@media(max-width:640px){
+  .hdr{flex-wrap:wrap}
+  .hdr-title{flex:1 1 100%}
+  .hdr-actions{flex-wrap:wrap;width:100%}
+  .authuser{flex-wrap:wrap;row-gap:6px}
+}
 .iconbtn{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:5px 12px;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap}
 .iconbtn:hover{color:var(--ink);border-color:var(--accent)}
 .hdr h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;letter-spacing:.2px;margin:0 0 2px}
@@ -247,6 +257,14 @@ tbody tr:last-child td{border-bottom:none}
 .foot{color:var(--muted);font-size:11.5px;margin-top:22px;text-align:center}
 @media(max-width:640px){
   .citem:not(.tile){flex:1 1 100%}
+  /* Tables that don't need a fixed/sticky layout (unlike Units or the
+     Production Report) — let them shrink to the phone's width instead of
+     forcing the desktop-oriented 820px horizontal scroll, which hid the
+     row's own identifying column (defect text, VIN) off-screen. */
+  .tablewrap.compact table{min-width:0;width:100%}
+  .tablewrap.compact th,.tablewrap.compact td{padding:7px 5px;font-size:11.5px}
+  .tablewrap.compact .vin{font-size:10.5px}
+  .tablewrap.compact .badge{padding:2px 6px;font-size:10px;white-space:nowrap}
 }
 </style>
 </head>
@@ -364,7 +382,7 @@ tbody tr:last-child td{border-bottom:none}
 
       <div class="section-title">Existing accounts</div>
       <div id="usersError" class="signin-error" hidden></div>
-      <div class="tablewrap detail-tablewrap">
+      <div class="tablewrap detail-tablewrap compact">
         <table>
           <thead><tr><th>Email</th><th>Role</th></tr></thead>
           <tbody id="usersBody"></tbody>
@@ -484,7 +502,7 @@ tbody tr:last-child td{border-bottom:none}
     <div class="panel">
       <h2>Most frequent defects</h2>
       <div class="desc">Grouped by defect wording &mdash; same defect reported on different units counts as separate occurrences</div>
-      <div class="tablewrap">
+      <div class="tablewrap compact">
         <table>
           <thead><tr><th>Defect</th><th>Station</th><th>Occurrences</th></tr></thead>
           <tbody id="topDefectsBody"></tbody>
@@ -494,7 +512,7 @@ tbody tr:last-child td{border-bottom:none}
 
     <div class="panel">
       <h2>Defects by unit</h2>
-      <div class="tablewrap">
+      <div class="tablewrap compact">
         <table>
           <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr></thead>
           <tbody id="defectsByVinBody"></tbody>
