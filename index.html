@@ -1320,7 +1320,7 @@ async function readWorkbookRows(file){
   return XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
 }
 
-function wireUpload(inputId, statusId, { validateHeader, parseRow, tableName, deleteFilterCol, buildStatus }){
+function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tableName, deleteFilterCol, buildStatus }){
   const input = document.getElementById(inputId);
   const statusEl = document.getElementById(statusId);
   input.addEventListener('change', async ()=>{
@@ -1332,13 +1332,16 @@ function wireUpload(inputId, statusId, { validateHeader, parseRow, tableName, de
     let rows;
     try{ rows = await readWorkbookRows(file); }
     catch(e){ statusEl.textContent = 'Could not read this file: ' + e.message; return; }
-    const header = rows[1] || [];
-    if(!validateHeader(header)){
-      statusEl.textContent = "This doesn't look like the expected file — header row didn't match.";
+    // Find the header row by content rather than a fixed row number — these
+    // exports sometimes have a blank row between the title and the header
+    // (or not), which would otherwise silently shift every column read.
+    const headerRowIdx = rows.findIndex(r => r && (r[headerCol]||'').toString().toUpperCase().includes(headerKeyword));
+    if(headerRowIdx === -1){
+      statusEl.textContent = `This doesn't look like the expected file — no header row with "${headerKeyword}" in the right column.`;
       return;
     }
     const parsed = [];
-    for(let i=2;i<rows.length;i++){
+    for(let i=headerRowIdx+1;i<rows.length;i++){
       const r = parseRow(rows[i]);
       if(r) parsed.push(r);
     }
@@ -1360,7 +1363,7 @@ function wireUpload(inputId, statusId, { validateHeader, parseRow, tableName, de
 }
 
 wireUpload('uploadProduction', 'uploadProductionStatus', {
-  validateHeader: h => (h[7]||'').toString().toUpperCase().includes('VIN'),
+  headerCol: 7, headerKeyword: 'VIN',
   parseRow: r => {
     if(!r || !r[4]) return null; // no batch number — not a real data row
     return {
@@ -1384,7 +1387,7 @@ wireUpload('uploadProduction', 'uploadProductionStatus', {
 });
 
 wireUpload('uploadDefects', 'uploadDefectsStatus', {
-  validateHeader: h => (h[0]||'').toString().toUpperCase().includes('CHASSIS'),
+  headerCol: 0, headerKeyword: 'CHASSIS',
   parseRow: r => {
     if(!r || !r[0]) return null; // no VIN — not a real data row
     const desc = (r[12]||'').toString().trim();
