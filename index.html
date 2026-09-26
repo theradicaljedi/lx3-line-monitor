@@ -630,8 +630,8 @@ function openDefectDetail(title, desc, mode, rows){
       const u = ALL_UNITS.find(x=>x.vinSuffix===d[0]);
       return `<tr class="detail-row" data-vin="${u?u.vin:''}" data-sr="${u?u.sr:''}">
         <td><span class="vin">${u?u.vin:d[0]}</span></td>
-        <td>${d[1]}</td>
-        <td>${d[2]}</td>
+        <td>${escapeHtml(d[1])}</td>
+        <td>${escapeHtml(d[2])}</td>
         <td>${fmtDate(xl(d[3]))}</td>
       </tr>`;
     }).join('') : '<tr><td colspan="4"><div class="emptynote">Nothing here.</div></td></tr>';
@@ -1120,6 +1120,15 @@ const COLOR_HEX = {
 
 function xl(n){ if(n==null) return null; return new Date(Date.UTC(1899,11,30) + n*86400000); }
 function fmtDate(d){ if(!d) return "—"; return d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'}); }
+// Defect descriptions/station names come straight from the uploaded Excel
+// file — an unescaped quote or & inside one (e.g. a 12" gap note) breaks
+// out of a title="..." attribute or stray HTML, which is what caused the
+// garbled/overlapping "Recorded defects" rows.
+function escapeHtml(s){
+  return String(s==null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
 const TODAY = new Date(); // real "today" in a live deployment, unlike the fixed snapshot date used while this was a static artifact
 
 // Days spent in the unit's CURRENT stage — not days since some fixed ERP
@@ -1649,7 +1658,7 @@ function openDrawer(vin, sr){
       <div class="drawer-side">
         <div class="section-title" style="margin-top:0">Recorded defects <span class="cgroup-count">${defectsForVin(u.vinSuffix).length}</span></div>
         ${defectsForVin(u.vinSuffix).length
-          ? `<div class="defectlist scrollable">${defectsForVin(u.vinSuffix).map(d=>`<div class="defect-row" title="${d[1]} &middot; ${fmtDate(xl(d[3]))} &mdash; ${d[2]}"><span class="dmeta">${d[1]} &middot; ${fmtDate(xl(d[3]))}</span><span class="dtxt">${d[2]}</span></div>`).join('')}</div>`
+          ? `<div class="defectlist scrollable">${defectsForVin(u.vinSuffix).map(d=>`<div class="defect-row" title="${escapeHtml(d[1])} &middot; ${fmtDate(xl(d[3]))} &mdash; ${escapeHtml(d[2])}"><span class="dmeta">${escapeHtml(d[1])} &middot; ${fmtDate(xl(d[3]))}</span><span class="dtxt">${escapeHtml(d[2])}</span></div>`).join('')}</div>`
           : `<div class="emptynote">No defects recorded for this unit in the VIN-wise defect report.</div>`}
         <div class="section-title">Issues &amp; remarks</div>
         <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
@@ -1755,7 +1764,7 @@ function renderAnalysis(){
   processEl.innerHTML = byStation.map((s,i)=>{
     const pct = Math.max(4, Math.round(s.count/maxStation*100));
     return `<div class="frow" data-i="${i}" tabindex="0" role="button" style="cursor:pointer">
-      <div class="lbl">${s.label}</div>
+      <div class="lbl">${escapeHtml(s.label)}</div>
       <div class="ftrack"><div class="ffill" style="width:${pct}%;background:var(--bad)"></div></div>
       <div class="cnt">${s.count}</div>
     </div>`;
@@ -1802,7 +1811,7 @@ function renderAnalysis(){
   const topDefects = Object.values(byDesc).sort((a,b)=>b.count-a.count).slice(0,15);
   const topDefectsBody = document.getElementById('topDefectsBody');
   topDefectsBody.innerHTML = topDefects.map((t,i)=>
-    `<tr class="detail-row" data-i="${i}"><td>${t.desc}</td><td>${t.station}</td><td>${t.count}</td></tr>`
+    `<tr class="detail-row" data-i="${i}"><td>${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td><td>${t.count}</td></tr>`
   ).join('') || `<tr><td colspan="3"><div class="emptynote">No defects recorded.</div></td></tr>`;
   topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
     const t = topDefects[+tr.dataset.i];
