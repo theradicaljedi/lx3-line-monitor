@@ -1351,7 +1351,7 @@ function renderChecklistBody(state, canWrite){
   return groupsHtml;
 }
 function wireChecklistTaps(container, state, dates, vin){
-  if(!sb || !currentSession) return;
+  if(!canWriteNow()) return;
   container.querySelectorAll('.citem.tappable').forEach(el=>{
     el.addEventListener('click', async ()=>{
       const key = el.dataset.key;
@@ -1410,7 +1410,7 @@ function renderMilestonesBody(row, canWrite){
     + `<div class="trow"><span>Inspection Out</span><span class="d">${fmtDate(u ? u.afInsp : null)}</span></div>`;
 }
 function wireMilestoneTaps(container, vin){
-  if(!sb || !currentSession) return;
+  if(!canWriteNow()) return;
   container.querySelectorAll('[data-mark]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       btn.disabled = true;
@@ -1441,7 +1441,7 @@ function renderIssues(items){
 function renderDrawerRow(row){
   const u = currentDrawerUnit;
   currentRowData = row;
-  const canWrite = !!sb && !!currentSession;
+  const canWrite = canWriteNow();
   const checklistOn = reachedInspection(u);
 
   // Keep the roster's VQ-line dots in sync with whatever this drawer just
@@ -1509,7 +1509,7 @@ function openDrawer(vin, sr){
     <div class="issueform">
       <input type="text" id="issueAuthor" placeholder="Your name">
       <textarea id="issueText" placeholder="Describe the issue on this unit&hellip;"></textarea>
-      <button id="issueSubmit" ${(u.vin && sb && currentSession)?'':'disabled'}>${!sb ? 'Supabase not configured' : !currentSession ? 'Sign in to add issues' : (u.vin? 'Add issue' : 'Assign a VIN before logging issues')}</button>
+      <button id="issueSubmit" ${(u.vin && canWriteNow())?'':'disabled'}>${!sb ? 'Supabase not configured' : !currentSession ? 'Sign in to add issues' : !canWriteNow() ? 'Viewers cannot add issues' : (u.vin? 'Add issue' : 'Assign a VIN before logging issues')}</button>
     </div>
    </div>
   `;
@@ -1521,7 +1521,7 @@ function openDrawer(vin, sr){
     fetchUnitRow(u.vin).then(row=>renderDrawerRow(row));
     unsubRow = subscribeUnitRow(u.vin, row=>renderDrawerRow(row));
 
-    if(currentSession){
+    if(canWriteNow()){
       const btn = document.getElementById('issueSubmit');
       btn.onclick = async ()=>{
         const text = document.getElementById('issueText').value.trim();
@@ -1901,7 +1901,7 @@ function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tab
     const file = input.files[0];
     input.value = ''; // allow re-choosing the same filename later
     if(!file) return;
-    if(!sb || !currentSession){ statusEl.textContent = 'Sign in first.'; return; }
+    if(!canWriteNow()){ statusEl.textContent = !sb ? 'Sign in first.' : !currentSession ? 'Sign in first.' : 'Viewers cannot upload data.'; return; }
     statusEl.textContent = 'Reading file…';
     let rows;
     try{ rows = await readWorkbookRows(file); }
@@ -1999,8 +1999,17 @@ wireUpload('uploadDefects', 'uploadDefectsStatus', {
 // Wire up auth state here, last — everything onAuthChanged/renderDrawerRow/
 // loadReport/renderAnalysis touch is now guaranteed to already be declared.
 if(sb){
-  sb.auth.getSession().then(({data})=>{ currentSession = data.session; renderAuthArea(); initData(); });
-  sb.auth.onAuthStateChange((event, session)=>{ currentSession = session; onAuthChanged(); });
+  sb.auth.getSession().then(async ({data})=>{
+    currentSession = data.session;
+    await loadCurrentRole();
+    renderAuthArea();
+    initData();
+  });
+  sb.auth.onAuthStateChange((event, session)=>{
+    currentSession = session;
+    if(event === 'PASSWORD_RECOVERY') openNewPasswordModal(); // arrived here via the emailed reset link
+    onAuthChanged();
+  });
 } else {
   initData(); // no Supabase configured — dev/fallback mode, runs off the hardcoded arrays with no gate
 }
