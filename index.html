@@ -1056,10 +1056,9 @@ const CHECKLIST_ITEMS = [
   {key:"ps", label:"PS (paint side)", group:"repair"},
   {key:"insp", label:"Inspection", group:"final"},
   {key:"repair", label:"Repair", group:"final"},
-  {key:"qcOk", label:"QC OK", group:"final"},
+  {key:"finalConfirm", label:"Final Confirmation", group:"final"},
   {key:"water", label:"Water leak test", group:"final"},
-  {key:"init1000", label:"Initial 1,000 insp.", group:"final"},
-  {key:"pdi", label:"PDI OK", group:"final"},
+  {key:"qcOk", label:"QC OK", group:"final"},
 ];
 const CHECKLIST_GROUPS = [
   {key:"tester", label:"VQ tester line process"},
@@ -1555,17 +1554,34 @@ function wireMilestoneTaps(container, vin){
   });
 }
 
-function renderIssues(items){
+function renderIssues(items, vin){
   const list = document.getElementById('issueList');
   if(!list) return;
   if(!items || !items.length){
     list.innerHTML = '<div class="emptynote">No issues logged for this unit yet.</div>';
     return;
   }
-  list.innerHTML = items.slice().reverse().map(it=>{
+  const isAdmin = currentRole === 'admin';
+  // Keep each item's original index (before the reverse, which is just for
+  // newest-first display) so a delete click removes the right one.
+  list.innerHTML = items.map((it,i)=>({it,i})).slice().reverse().map(({it,i})=>{
     const d = it.ts ? new Date(it.ts).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
-    return `<div class="issue"><div class="meta">${(it.author||'Anonymous')} &middot; ${d}</div><div class="txt">${(it.text||'').replace(/</g,'&lt;')}</div></div>`;
+    return `<div class="issue"><div class="meta">Added by ${(it.author||'Unknown')} &middot; ${d}${isAdmin?`<button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>`:''}</div><div class="txt">${(it.text||'').replace(/</g,'&lt;')}</div></div>`;
   }).join('');
+  if(isAdmin && vin){
+    list.querySelectorAll('[data-delidx]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        if(!confirm('Delete this issue? This cannot be undone.')) return;
+        const idx = +btn.dataset.delidx;
+        const newItems = ((currentRowData && currentRowData.issues) || []).slice();
+        newItems.splice(idx, 1);
+        btn.disabled = true;
+        const ok = await upsertUnitRow(vin, { issues: newItems });
+        if(ok){ currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin); }
+        else btn.disabled = false;
+      });
+    });
+  }
 }
 
 function renderDrawerRow(row){
@@ -1598,7 +1614,7 @@ function renderDrawerRow(row){
     }
   }
 
-  renderIssues((row && row.issues) || []);
+  renderIssues((row && row.issues) || [], u && u.vin);
 }
 
 function openDrawer(vin, sr){
@@ -1638,7 +1654,6 @@ function openDrawer(vin, sr){
         <div class="section-title">Issues &amp; remarks</div>
         <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
         <div class="issueform">
-          <input type="text" id="issueAuthor" placeholder="Your name">
           <textarea id="issueText" placeholder="Describe the issue on this unit&hellip;"></textarea>
           <button id="issueSubmit" ${(u.vin && canWriteNow())?'':'disabled'}>${!sb ? 'Supabase not configured' : !currentSession ? 'Sign in to add issues' : !canWriteNow() ? 'Viewers cannot add issues' : (u.vin? 'Add issue' : 'Assign a VIN before logging issues')}</button>
         </div>
@@ -1660,7 +1675,7 @@ function openDrawer(vin, sr){
       const btn = document.getElementById('issueSubmit');
       btn.onclick = async ()=>{
         const text = document.getElementById('issueText').value.trim();
-        const author = document.getElementById('issueAuthor').value.trim() || currentSession.user.email;
+        const author = currentSession.user.email; // always the signed-in account, not a free-typed name
         if(!text) return;
         btn.disabled = true;
         const items = (currentRowData && currentRowData.issues) || [];
