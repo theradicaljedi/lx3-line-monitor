@@ -68,6 +68,9 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .signin-box .desc{margin-bottom:14px}
 .signin-box input{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-size:13px;margin-bottom:8px;background:var(--surface);color:var(--ink)}
 .signin-error{color:var(--bad);font-size:12px;margin-bottom:8px}
+.linkbtn{display:block;background:none;border:none;color:var(--accent);font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin:0 auto;text-align:center;width:100%}
+.roleselect{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:12.5px}
+.rolebadge{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:20px;background:var(--accent-soft);color:var(--accent)}
 
 .uploadrow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
 .uploadrow:first-of-type{border-top:none}
@@ -164,16 +167,12 @@ tbody tr:last-child td{border-bottom:none}
 .overlay{position:fixed;inset:0;background:var(--surface);z-index:50;opacity:0;pointer-events:none;transition:opacity .18s}
 .overlay.open{opacity:1;pointer-events:auto}
 .drawer{width:100%;height:100%;background:var(--surface);transform:translateX(100%);transition:transform .22s ease;overflow-y:auto;padding:20px env(safe-area-inset-right,0px) 40px 20px}
-.drawer-inner{max-width:none}
+/* Full-page on every screen size, but the content itself stays a compact,
+   centered column — otherwise rows spaced by justify-content:space-between
+   stretch edge-to-edge on wide screens, leaving a huge visual gap between
+   each label and its value. */
+.drawer-inner{max-width:720px;margin:0 auto}
 .overlay.open .drawer{transform:translateX(0)}
-/* On desktop this was a full-width page with rows spaced by
-   justify-content:space-between, leaving a huge visual gap between each
-   label and value. Cap it to a real side panel instead. */
-@media(min-width:760px){
-  .overlay{background:rgba(10,14,18,.45)}
-  .drawer{width:560px;max-width:90vw;margin-left:auto;box-shadow:-8px 0 32px -12px rgba(20,30,40,.4)}
-  .drawer-inner{max-width:520px}
-}
 .drawer-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .drawer-hdr h2{font-family:'IBM Plex Mono',monospace;font-size:18px;margin:0 0 4px;color:var(--accent)}
 .drawer .closebtn{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--ink)}
@@ -244,6 +243,7 @@ tbody tr:last-child td{border-bottom:none}
     <div class="hdr-actions">
       <button type="button" class="iconbtn" id="scopeBtn" title="Choose which stages count as in-scope">Scope</button>
       <button type="button" class="iconbtn" id="uploadBtn" title="Upload production/defect data" hidden>Upload</button>
+      <button type="button" class="iconbtn" id="usersBtn" title="Manage user accounts and roles" hidden>Users</button>
       <div id="authArea"></div>
     </div>
   </div>
@@ -290,6 +290,52 @@ tbody tr:last-child td{border-bottom:none}
       <input type="password" id="signinPassword" placeholder="Password">
       <div id="signinError" class="signin-error" hidden></div>
       <button type="button" class="markbtn" id="signinSubmit" style="width:100%;padding:9px;font-size:13px">Sign in</button>
+      <button type="button" id="forgotPasswordLink" class="linkbtn">Forgot password?</button>
+    </div>
+  </div>
+
+  <div id="forgotModalOverlay" class="signin-overlay" hidden>
+    <div class="signin-box">
+      <div class="signin-hdr">
+        <h3>Reset password</h3>
+        <button type="button" class="closebtn" id="forgotModalClose">&times;</button>
+      </div>
+      <div class="desc">Enter your account email and we'll send a link to set a new password.</div>
+      <input type="email" id="forgotEmail" placeholder="Email">
+      <div id="forgotError" class="signin-error" hidden></div>
+      <div id="forgotStatus" class="emptynote" hidden></div>
+      <button type="button" class="markbtn" id="forgotSubmit" style="width:100%;padding:9px;font-size:13px">Send reset link</button>
+    </div>
+  </div>
+
+  <div id="newPasswordModalOverlay" class="signin-overlay" hidden>
+    <div class="signin-box">
+      <div class="signin-hdr">
+        <h3>Set new password</h3>
+        <button type="button" class="closebtn" id="newPasswordModalClose">&times;</button>
+      </div>
+      <div class="desc">Choose a new password for your account.</div>
+      <input type="password" id="newPassword1" placeholder="New password">
+      <input type="password" id="newPassword2" placeholder="Confirm new password">
+      <div id="newPasswordError" class="signin-error" hidden></div>
+      <button type="button" class="markbtn" id="newPasswordSubmit" style="width:100%;padding:9px;font-size:13px">Save password</button>
+    </div>
+  </div>
+
+  <div id="usersModalOverlay" class="signin-overlay" hidden>
+    <div class="signin-box detail-box">
+      <div class="signin-hdr">
+        <h3>Manage users</h3>
+        <button type="button" class="closebtn" id="usersModalClose">&times;</button>
+      </div>
+      <div class="desc">Admin can view or edit; Editor can view and edit data but not manage accounts; Viewer can only view.</div>
+      <div id="usersError" class="signin-error" hidden></div>
+      <div class="tablewrap detail-tablewrap">
+        <table>
+          <thead><tr><th>Email</th><th>Role</th></tr></thead>
+          <tbody id="usersBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 
@@ -443,6 +489,16 @@ setConnStatus(!!sb, sb ? 'Live (Supabase) — read-only' : 'Supabase not configu
 // by the RLS select policies in supabase_schema.sql, so the data can't be
 // read by calling the API directly either.
 let currentSession = null;
+// Every signed-in account also has a role in the user_roles table: admin
+// (can write data and manage everyone's role), editor (can write data),
+// or viewer (read-only). null until loadCurrentRole() resolves after sign-in.
+let currentRole = null;
+function canWriteNow(){ return !!sb && !!currentSession && (currentRole==="admin" || currentRole==="editor"); }
+async function loadCurrentRole(){
+  if(!sb || !currentSession){ currentRole = null; return; }
+  const { data, error } = await sb.from('user_roles').select('role').eq('user_id', currentSession.user.id).maybeSingle();
+  currentRole = (!error && data) ? data.role : 'viewer'; // viewer if the row hasn't been provisioned yet
+}
 // Cache of the latest units_data row per VIN — the roster's VQ-line dots
 // read from here (renderTable/vqMiniHtml) so a checklist tap made in the
 // drawer shows up there immediately, instead of only in the open drawer.
@@ -455,19 +511,24 @@ const signinError = document.getElementById('signinError');
 
 function renderAuthArea(){
   const uploadBtnEl = document.getElementById('uploadBtn');
+  const usersBtnEl = document.getElementById('usersBtn');
   const authGate = document.getElementById('authGate');
   const mainContent = document.getElementById('mainContent');
   if(!sb){
     authAreaEl.innerHTML = '';
     if(uploadBtnEl) uploadBtnEl.hidden = true;
+    if(usersBtnEl) usersBtnEl.hidden = true;
     authGate.hidden = true; mainContent.hidden = false; // no Supabase configured — nothing to gate behind
     return;
   }
   if(currentSession){
-    authAreaEl.innerHTML = `<div class="authuser">${currentSession.user.email} <button type="button" id="signOutBtn">Sign out</button></div>`;
+    const roleLabel = currentRole ? currentRole[0].toUpperCase()+currentRole.slice(1) : '…';
+    authAreaEl.innerHTML = `<div class="authuser"><span class="rolebadge">${roleLabel}</span> ${currentSession.user.email} <button type="button" id="changePasswordBtn">Change password</button> <button type="button" id="signOutBtn">Sign out</button></div>`;
     document.getElementById('signOutBtn').addEventListener('click', async ()=>{ await sb.auth.signOut(); });
+    document.getElementById('changePasswordBtn').addEventListener('click', openNewPasswordModal);
     setConnStatus(true, 'Live (Supabase) — signed in');
-    if(uploadBtnEl) uploadBtnEl.hidden = false;
+    if(uploadBtnEl) uploadBtnEl.hidden = !canWriteNow();
+    if(usersBtnEl) usersBtnEl.hidden = currentRole !== 'admin';
     authGate.hidden = true;
     mainContent.hidden = false;
   } else {
@@ -475,6 +536,7 @@ function renderAuthArea(){
     document.getElementById('signInBtn').addEventListener('click', openSignin);
     setConnStatus(true, 'Live (Supabase) — signed out');
     if(uploadBtnEl) uploadBtnEl.hidden = true;
+    if(usersBtnEl) usersBtnEl.hidden = true;
     authGate.hidden = false;
     mainContent.hidden = true;
   }
@@ -551,6 +613,93 @@ document.getElementById('signinSubmit').addEventListener('click', async ()=>{
   if(e.key==='Enter') document.getElementById('signinSubmit').click();
 }));
 
+// ---------- Forgot password (email link) ----------
+const forgotOverlay = document.getElementById('forgotModalOverlay');
+const forgotEmail = document.getElementById('forgotEmail');
+const forgotError = document.getElementById('forgotError');
+const forgotStatus = document.getElementById('forgotStatus');
+function openForgotModal(){
+  closeSignin();
+  forgotError.hidden = true; forgotStatus.hidden = true;
+  forgotEmail.value = signinEmail.value || '';
+  forgotOverlay.hidden = false;
+  forgotEmail.focus();
+}
+function closeForgotModal(){ forgotOverlay.hidden = true; }
+document.getElementById('forgotPasswordLink').addEventListener('click', openForgotModal);
+document.getElementById('forgotModalClose').addEventListener('click', closeForgotModal);
+forgotOverlay.addEventListener('click', e=>{ if(e.target===forgotOverlay) closeForgotModal(); });
+document.getElementById('forgotSubmit').addEventListener('click', async ()=>{
+  if(!sb) return;
+  const email = forgotEmail.value.trim();
+  forgotError.hidden = true; forgotStatus.hidden = true;
+  if(!email){ forgotError.textContent = 'Enter your email first.'; forgotError.hidden = false; return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  if(error){ forgotError.textContent = error.message; forgotError.hidden = false; return; }
+  forgotStatus.textContent = 'Check your email for a reset link.';
+  forgotStatus.hidden = false;
+});
+
+// ---------- Set new password — reached either from the emailed reset link
+// (Supabase fires a PASSWORD_RECOVERY auth event, wired below) or from the
+// "Change password" button for an already signed-in account. ----------
+const newPasswordOverlay = document.getElementById('newPasswordModalOverlay');
+const newPassword1 = document.getElementById('newPassword1');
+const newPassword2 = document.getElementById('newPassword2');
+const newPasswordError = document.getElementById('newPasswordError');
+function openNewPasswordModal(){
+  newPasswordError.hidden = true;
+  newPassword1.value = ''; newPassword2.value = '';
+  newPasswordOverlay.hidden = false;
+  newPassword1.focus();
+}
+function closeNewPasswordModal(){ newPasswordOverlay.hidden = true; }
+document.getElementById('newPasswordModalClose').addEventListener('click', closeNewPasswordModal);
+newPasswordOverlay.addEventListener('click', e=>{ if(e.target===newPasswordOverlay) closeNewPasswordModal(); });
+document.getElementById('newPasswordSubmit').addEventListener('click', async ()=>{
+  if(!sb) return;
+  const p1 = newPassword1.value, p2 = newPassword2.value;
+  newPasswordError.hidden = true;
+  if(!p1 || p1.length < 6){ newPasswordError.textContent = 'Password must be at least 6 characters.'; newPasswordError.hidden = false; return; }
+  if(p1 !== p2){ newPasswordError.textContent = "Passwords don't match."; newPasswordError.hidden = false; return; }
+  const { error } = await sb.auth.updateUser({ password: p1 });
+  if(error){ newPasswordError.textContent = error.message; newPasswordError.hidden = false; return; }
+  closeNewPasswordModal();
+});
+
+// ---------- Manage users (admin only) ----------
+const usersOverlay = document.getElementById('usersModalOverlay');
+const usersError = document.getElementById('usersError');
+function openUsersModal(){ usersError.hidden = true; loadUsersModal(); usersOverlay.hidden = false; }
+function closeUsersModal(){ usersOverlay.hidden = true; }
+document.getElementById('usersBtn').addEventListener('click', openUsersModal);
+document.getElementById('usersModalClose').addEventListener('click', closeUsersModal);
+usersOverlay.addEventListener('click', e=>{ if(e.target===usersOverlay) closeUsersModal(); });
+async function loadUsersModal(){
+  const body = document.getElementById('usersBody');
+  body.innerHTML = '<tr><td colspan="2"><div class="emptynote">Loading&hellip;</div></td></tr>';
+  const { data, error } = await sb.from('user_roles').select('*').order('email');
+  if(error){ usersError.textContent = error.message; usersError.hidden = false; body.innerHTML = ''; return; }
+  body.innerHTML = data.map(r=>`<tr data-uid="${r.user_id}">
+    <td>${r.email||''}</td>
+    <td><select class="roleselect" data-uid="${r.user_id}">
+      ${['admin','editor','viewer'].map(role=>`<option value="${role}" ${r.role===role?'selected':''}>${role[0].toUpperCase()+role.slice(1)}</option>`).join('')}
+    </select></td>
+  </tr>`).join('') || '<tr><td colspan="2"><div class="emptynote">No accounts yet — sign in with each account once so its row is provisioned.</div></td></tr>';
+  body.querySelectorAll('.roleselect').forEach(sel=>{
+    sel.addEventListener('change', async ()=>{
+      const uid = sel.dataset.uid;
+      const newRole = sel.value;
+      sel.disabled = true;
+      const { error: updErr } = await sb.from('user_roles').update({ role: newRole }).eq('user_id', uid);
+      sel.disabled = false;
+      if(updErr){ usersError.textContent = updErr.message; usersError.hidden = false; return; }
+      usersError.hidden = true;
+      if(uid === currentSession.user.id){ currentRole = newRole; renderAuthArea(); } // changed your own role
+    });
+  });
+}
+
 // Re-render whatever's currently open so tap targets light up / lock the
 // moment sign-in state changes, without requiring a page reload.
 // Re-render whatever's currently open so tap targets light up / lock the
@@ -559,7 +708,8 @@ document.getElementById('signinSubmit').addEventListener('click', async ()=>{
 // everything it references — currentDrawerUnit, tabReportEl, etc. — exists),
 // so that this promise/event callback can never race the rest of the app's
 // declarations, however fast Supabase resolves getSession().
-function onAuthChanged(){
+async function onAuthChanged(){
+  await loadCurrentRole();
   renderAuthArea();
   initData(); // no-ops itself while signed out; loads real data the moment a session appears
   if(currentDrawerUnit) renderDrawerRow(currentRowData);
