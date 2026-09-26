@@ -216,7 +216,7 @@ tbody tr:last-child td{border-bottom:none}
         <h3>Sign in</h3>
         <button type="button" class="closebtn" id="signinClose">&times;</button>
       </div>
-      <div class="desc">Editing (checklist taps, Body/Paint/TCF-Out, issue notes) needs an account. Ask whoever administers this dashboard for one &mdash; there's no public sign-up.</div>
+      <div class="desc">This dashboard needs a signed-in account to view or edit. Ask whoever administers it for one &mdash; there's no public sign-up.</div>
       <input type="email" id="signinEmail" placeholder="Email">
       <input type="password" id="signinPassword" placeholder="Password">
       <div id="signinError" class="signin-error" hidden></div>
@@ -240,6 +240,13 @@ tbody tr:last-child td{border-bottom:none}
     </div>
   </div>
 
+  <div class="panel" id="authGate" style="text-align:center;padding:40px 20px" hidden>
+    <h2 style="margin-bottom:8px">Sign in to view this dashboard</h2>
+    <div class="desc" style="margin-bottom:16px">The LX3 line data is only visible to signed-in accounts. Ask whoever administers this dashboard for one &mdash; there's no public sign-up.</div>
+    <button type="button" class="authbtn" id="gateSignInBtn" style="padding:9px 18px;font-size:13px">Sign in</button>
+  </div>
+
+  <div id="mainContent" hidden>
   <div class="tabbar" id="tabbar">
     <button type="button" class="tabbtn active" data-tab="roster">Units</button>
     <button type="button" class="tabbtn" data-tab="report">Production Report</button>
@@ -347,6 +354,7 @@ tbody tr:last-child td{border-bottom:none}
       </div>
     </div>
   </div>
+  </div>
 
 </div>
 
@@ -376,10 +384,17 @@ function setConnStatus(ok, label){
 }
 setConnStatus(!!sb, sb ? 'Live (Supabase) — read-only' : 'Supabase not configured — edit index.html');
 
-// ---------- Auth: read is public, write needs an account you created yourself ----------
+// ---------- Auth: the whole dashboard needs a signed-in account ----------
 // (Supabase dashboard > Authentication > Users > Add user — this page has no
-// public sign-up form.) currentSession is null for anonymous visitors.
+// public sign-up form.) currentSession is null for anonymous visitors, who
+// see only the sign-in gate — enforced both here (hiding #mainContent) and
+// by the RLS select policies in supabase_schema.sql, so the data can't be
+// read by calling the API directly either.
 let currentSession = null;
+// Cache of the latest units_data row per VIN — the roster's VQ-line dots
+// read from here (renderTable/vqMiniHtml) so a checklist tap made in the
+// drawer shows up there immediately, instead of only in the open drawer.
+const UNIT_ROWS_CACHE = {};
 const authAreaEl = document.getElementById('authArea');
 const signinOverlay = document.getElementById('signinModalOverlay');
 const signinEmail = document.getElementById('signinEmail');
@@ -388,17 +403,28 @@ const signinError = document.getElementById('signinError');
 
 function renderAuthArea(){
   const adminPanel = document.getElementById('dataAdminPanel');
-  if(!sb){ authAreaEl.innerHTML = ''; if(adminPanel) adminPanel.hidden = true; return; }
+  const authGate = document.getElementById('authGate');
+  const mainContent = document.getElementById('mainContent');
+  if(!sb){
+    authAreaEl.innerHTML = '';
+    if(adminPanel) adminPanel.hidden = true;
+    authGate.hidden = true; mainContent.hidden = false; // no Supabase configured — nothing to gate behind
+    return;
+  }
   if(currentSession){
     authAreaEl.innerHTML = `<div class="authuser">${currentSession.user.email} <button type="button" id="signOutBtn">Sign out</button></div>`;
     document.getElementById('signOutBtn').addEventListener('click', async ()=>{ await sb.auth.signOut(); });
     setConnStatus(true, 'Live (Supabase) — signed in');
     if(adminPanel) adminPanel.hidden = false;
+    authGate.hidden = true;
+    mainContent.hidden = false;
   } else {
-    authAreaEl.innerHTML = `<button type="button" class="authbtn" id="signInBtn">Sign in to edit</button>`;
+    authAreaEl.innerHTML = `<button type="button" class="authbtn" id="signInBtn">Sign in</button>`;
     document.getElementById('signInBtn').addEventListener('click', openSignin);
-    setConnStatus(true, 'Live (Supabase) — read-only');
+    setConnStatus(true, 'Live (Supabase) — signed out');
     if(adminPanel) adminPanel.hidden = true;
+    authGate.hidden = false;
+    mainContent.hidden = true;
   }
 }
 function openSignin(){
@@ -410,6 +436,7 @@ function openSignin(){
 function closeSignin(){ signinOverlay.hidden = true; }
 document.getElementById('signinClose').addEventListener('click', closeSignin);
 signinOverlay.addEventListener('click', e=>{ if(e.target===signinOverlay) closeSignin(); });
+document.getElementById('gateSignInBtn').addEventListener('click', openSignin);
 
 // ---------- Defect Analysis drill-down modal ----------
 // One modal, two row shapes: 'defects' (raw VIN-wise defect entries — from a
@@ -482,10 +509,8 @@ document.getElementById('signinSubmit').addEventListener('click', async ()=>{
 // declarations, however fast Supabase resolves getSession().
 function onAuthChanged(){
   renderAuthArea();
-  if(typeof renderTable === 'function') renderTable();
+  initData(); // no-ops itself while signed out; loads real data the moment a session appears
   if(currentDrawerUnit) renderDrawerRow(currentRowData);
-  if(!tabReportEl.hidden) loadReport();
-  if(!tabAnalysisEl.hidden) renderAnalysis();
 }
 if(!sb) renderAuthArea();
 </script>
@@ -938,7 +963,9 @@ function stageBadgeHtml(u){
 }
 function vqMiniHtml(u){
   if(!reachedInspection(u)) return '<span class="emptynote">&mdash;</span>';
-  const state = seedChecklist(u.vinSuffix);
+  const row = u.vin ? UNIT_ROWS_CACHE[u.vin] : null;
+  const seed = seedChecklist(u.vinSuffix);
+  const state = (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
   const testerKeys = CHECKLIST_ITEMS.filter(it=>it.group==="tester").map(it=>it.key);
   const on = testerKeys.filter(k=>state[k]).length;
   const dots = testerKeys.map((k,i)=>`<span class="dot ${state[k]?'on':''}"></span>`).join('');
@@ -1001,6 +1028,13 @@ async function fetchUnitRow(vin){
   const { data, error } = await sb.from('units_data').select('*').eq('vin', vin).maybeSingle();
   if(error){ console.error(error); return null; }
   return data;
+}
+async function loadUnitRowsCache(){
+  if(!sb) return;
+  const { data, error } = await sb.from('units_data').select('vin,checklist_items');
+  if(error){ console.error(error); return; }
+  Object.keys(UNIT_ROWS_CACHE).forEach(k=>delete UNIT_ROWS_CACHE[k]);
+  (data||[]).forEach(r=>{ UNIT_ROWS_CACHE[r.vin] = r; });
 }
 async function upsertUnitRow(vin, patch){
   if(!sb || !vin) return false;
@@ -1118,6 +1152,13 @@ function renderDrawerRow(row){
   currentRowData = row;
   const canWrite = !!sb && !!currentSession;
   const checklistOn = reachedInspection(u);
+
+  // Keep the roster's VQ-line dots in sync with whatever this drawer just
+  // loaded or just got pushed via realtime (e.g. a checklist tap).
+  if(u && u.vin){
+    if(row) UNIT_ROWS_CACHE[u.vin] = row; else delete UNIT_ROWS_CACHE[u.vin];
+    renderTable();
+  }
 
   const timelineEl = document.getElementById('timelineBody');
   if(timelineEl){
@@ -1534,7 +1575,8 @@ function rebuildAllUnits(){
   ALL_UNITS.push(...mapped);
 }
 async function initData(){
-  const [prodRows, defRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase()]);
+  if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
+  const [prodRows, defRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase(), loadUnitRowsCache()]);
   if(prodRows && prodRows.length){
     ROWS.length = 0; ROWS.push(...prodRows);
     rebuildAllUnits();
@@ -1666,9 +1708,10 @@ wireUpload('uploadDefects', 'uploadDefectsStatus', {
 // Wire up auth state here, last — everything onAuthChanged/renderDrawerRow/
 // loadReport/renderAnalysis touch is now guaranteed to already be declared.
 if(sb){
-  sb.auth.getSession().then(({data})=>{ currentSession = data.session; renderAuthArea(); });
+  sb.auth.getSession().then(({data})=>{ currentSession = data.session; renderAuthArea(); initData(); });
   sb.auth.onAuthStateChange((event, session)=>{ currentSession = session; onAuthChanged(); });
-  initData();
+} else {
+  initData(); // no Supabase configured — dev/fallback mode, runs off the hardcoded arrays with no gate
 }
 </script>
 </body>
