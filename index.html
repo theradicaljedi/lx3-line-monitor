@@ -119,6 +119,8 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .toolbar input[type=search]{flex:1;min-width:180px;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
 .toolbar select{padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
 .toolbar .count{color:var(--muted);font-size:12.5px;margin-left:auto}
+.bu-toggle{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer;user-select:none;white-space:nowrap}
+.bu-toggle input{cursor:pointer}
 
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
 table{border-collapse:collapse;width:100%;min-width:820px}
@@ -149,6 +151,14 @@ tbody tr:last-child td{border-bottom:none}
 .drawer{width:100%;height:100%;background:var(--surface);transform:translateX(100%);transition:transform .22s ease;overflow-y:auto;padding:20px env(safe-area-inset-right,0px) 40px 20px}
 .drawer-inner{max-width:none}
 .overlay.open .drawer{transform:translateX(0)}
+/* On desktop this was a full-width page with rows spaced by
+   justify-content:space-between, leaving a huge visual gap between each
+   label and value. Cap it to a real side panel instead. */
+@media(min-width:760px){
+  .overlay{background:rgba(10,14,18,.45)}
+  .drawer{width:560px;max-width:90vw;margin-left:auto;box-shadow:-8px 0 32px -12px rgba(20,30,40,.4)}
+  .drawer-inner{max-width:520px}
+}
 .drawer-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
 .drawer-hdr h2{font-family:'IBM Plex Mono',monospace;font-size:18px;margin:0 0 4px;color:var(--accent)}
 .drawer .closebtn{border:none;background:var(--surface-2);width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;color:var(--ink)}
@@ -306,6 +316,7 @@ tbody tr:last-child td{border-bottom:none}
         <input type="search" id="search" placeholder="Search VIN or batch&hellip;">
         <select id="stageFilter"></select>
         <select id="colorFilter"></select>
+        <label class="bu-toggle"><input type="checkbox" id="includeBU" checked> Include BU</label>
         <span class="count" id="rowcount"></span>
       </div>
       <div class="tablewrap">
@@ -981,6 +992,14 @@ const searchEl = document.getElementById('search');
 const stageFilterEl = document.getElementById('stageFilter');
 const colorFilterEl = document.getElementById('colorFilter');
 const rowcountEl = document.getElementById('rowcount');
+const includeBUEl = document.getElementById('includeBU');
+let includeBU = (()=>{ try{ const v = localStorage.getItem('lx3_include_bu'); return v===null ? true : v==='1'; }catch(e){ return true; } })();
+includeBUEl.checked = includeBU;
+includeBUEl.addEventListener('change', ()=>{
+  includeBU = includeBUEl.checked;
+  try{ localStorage.setItem('lx3_include_bu', includeBU?'1':'0'); }catch(e){}
+  renderTable();
+});
 
 function stageBadgeHtml(u){
   return `<span class="badge" style="background:color-mix(in srgb, ${u.stage.color} 16%, transparent);color:${u.stage.color}">${u.stage.label}</span>`;
@@ -1001,6 +1020,7 @@ function renderTable(){
   const q = searchEl.value.trim().toLowerCase();
   const colorQ = colorFilterEl.value;
   const rows = units.filter(u=>{
+    if(!includeBU && u.statusCode==="USTK") return false;
     if(tileFilter==="WIP"){ if(u.statusCode==="PLAN"||u.statusCode==="USTK") return false; }
     else if(tileFilter){ if(u.statusCode!==tileFilter) return false; }
     if(colorQ && u.colorDesc!==colorQ) return false;
