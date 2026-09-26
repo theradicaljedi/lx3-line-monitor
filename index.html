@@ -130,6 +130,17 @@ tbody tr{cursor:pointer;transition:background .1s}
 tbody tr:hover{background:var(--surface-2)}
 tbody tr:last-child td{border-bottom:none}
 .reporttotalcell{font-weight:700;font-family:'IBM Plex Mono',monospace;background:var(--surface-2)}
+/* Fixed column widths for the Units table — otherwise the browser
+   re-measures the widest cell in whatever subset a WIP tile/filter shows,
+   so columns visibly shift width every time you switch tiles. */
+#unitsTable{table-layout:fixed}
+#unitsTable th:nth-child(1),#unitsTable td:nth-child(1){width:50px}
+#unitsTable th:nth-child(2),#unitsTable td:nth-child(2){width:190px}
+#unitsTable th:nth-child(3),#unitsTable td:nth-child(3){width:110px}
+#unitsTable th:nth-child(4),#unitsTable td:nth-child(4){width:180px}
+#unitsTable th:nth-child(5),#unitsTable td:nth-child(5){width:150px}
+#unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:110px}
+#unitsTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #reportBody tbody td:first-child{font-weight:600;white-space:nowrap}
 #reportBody td{text-align:center;font-family:'IBM Plex Mono',monospace}
 #reportBody td:first-child{text-align:left;font-family:'IBM Plex Sans',sans-serif}
@@ -320,7 +331,7 @@ tbody tr:last-child td{border-bottom:none}
         <span class="count" id="rowcount"></span>
       </div>
       <div class="tablewrap">
-        <table>
+        <table id="unitsTable">
           <thead><tr>
             <th>Sr</th><th>VIN</th><th>Color</th><th>Stage</th><th>VQ line</th><th>Days in WIP</th>
           </tr></thead>
