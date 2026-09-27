@@ -155,8 +155,8 @@ tbody tr:last-child td{border-bottom:none}
 #unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:80px}
 #unitsTable th:nth-child(7),#unitsTable td:nth-child(7){width:110px}
 #unitsTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#unitsTable th.sortable{cursor:pointer;user-select:none}
-#unitsTable th.sortable:hover{color:var(--ink)}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:var(--ink)}
 .sortic{display:inline-block;width:9px;font-size:9px;color:var(--muted);opacity:.4}
 .sortic.active{opacity:1;color:var(--accent)}
 #reportBody tbody td:first-child{font-weight:600;white-space:nowrap}
@@ -257,6 +257,10 @@ tbody tr:last-child td{border-bottom:none}
 .issueform input[type=text]{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:12.5px;margin-bottom:6px;background:var(--surface);color:var(--ink)}
 .issueform button{margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer}
 .issueform button:disabled{opacity:.5;cursor:default}
+.issuephotorow{display:flex;align-items:center;gap:8px;margin:8px 0}
+.filebtn.small{padding:5px 12px;font-size:11.5px}
+.issuephotopreview{display:block;max-width:160px;max-height:120px;border-radius:8px;margin-bottom:8px;object-fit:cover}
+.issue .issuephoto{display:block;max-width:220px;max-height:160px;border-radius:8px;margin-top:8px;object-fit:cover;cursor:pointer}
 .emptynote{font-size:12px;color:var(--muted);font-style:italic}
 .foot{color:var(--muted);font-size:11.5px;margin-top:22px;text-align:center}
 @media(max-width:640px){
@@ -484,12 +488,16 @@ tbody tr:last-child td{border-bottom:none}
 
     <div class="panel">
       <h2>Cycle time</h2>
-      <div class="desc">Average days spent in each stage (in&rarr;out), computed per unit from the same ERP dates as the report above. Populates as Body/Paint/TCF/VQ in-dates come in.</div>
+      <div class="desc">Average days spent in each stage (in&rarr;out).</div>
       <div class="kpis" id="cycleKpis"></div>
       <div class="section-title" style="margin-top:16px">Longest individual stage durations</div>
       <div class="tablewrap">
         <table>
-          <thead><tr><th>VIN</th><th>Stage</th><th>Days</th></tr></thead>
+          <thead><tr>
+            <th class="sortable" data-col="vin">VIN <span class="sortic" data-col="vin"></span></th>
+            <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
+            <th class="sortable" data-col="days">Days <span class="sortic" data-col="days"></span></th>
+          </tr></thead>
           <tbody id="cycleOutliersBody"></tbody>
         </table>
       </div>
@@ -1650,7 +1658,8 @@ function renderIssues(items, vin){
   // newest-first display) so a delete click removes the right one.
   list.innerHTML = items.map((it,i)=>({it,i})).slice().reverse().map(({it,i})=>{
     const d = it.ts ? new Date(it.ts).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
-    return `<div class="issue"><div class="meta">Added by ${(it.author||'Unknown')} &middot; ${d}${isAdmin?`<button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>`:''}</div><div class="txt">${(it.text||'').replace(/</g,'&lt;')}</div></div>`;
+    const photoHtml = it.photoUrl ? `<a href="${escapeHtml(it.photoUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(it.photoUrl)}" class="issuephoto" alt="Attached photo"></a>` : '';
+    return `<div class="issue"><div class="meta">Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${isAdmin?`<button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>`:''}</div>${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}${photoHtml}</div>`;
   }).join('');
   if(isAdmin && vin){
     list.querySelectorAll('[data-delidx]').forEach(btn=>{
@@ -1739,6 +1748,12 @@ function openDrawer(vin, sr){
         <div class="issuelist" id="issueList"><div class="emptynote">Loading&hellip;</div></div>
         <div class="issueform">
           <textarea id="issueText" placeholder="Describe the issue on this unit&hellip;"></textarea>
+          <div class="issuephotorow">
+            <label class="filebtn small">Take/attach photo<input type="file" id="issuePhoto" accept="image/*" ${(u.vin && canWriteNow())?'':'disabled'}></label>
+            <span id="issuePhotoName" class="emptynote"></span>
+          </div>
+          <img id="issuePhotoPreview" class="issuephotopreview" hidden>
+          <div id="issuePhotoError" class="signin-error" hidden></div>
           <button id="issueSubmit" ${(u.vin && canWriteNow())?'':'disabled'}>${!sb ? 'Supabase not configured' : !currentSession ? 'Sign in to add issues' : !canWriteNow() ? 'Viewers cannot add issues' : (u.vin? 'Add issue' : 'Assign a VIN before logging issues')}</button>
         </div>
       </div>
@@ -1756,17 +1771,51 @@ function openDrawer(vin, sr){
     unsubRow = subscribeUnitRow(u.vin, row=>renderDrawerRow(row));
 
     if(canWriteNow()){
+      const photoInput = document.getElementById('issuePhoto');
+      const photoPreview = document.getElementById('issuePhotoPreview');
+      const photoName = document.getElementById('issuePhotoName');
+      photoInput.addEventListener('change', ()=>{
+        const file = photoInput.files[0];
+        if(!file){ photoPreview.hidden = true; photoName.textContent = ''; return; }
+        photoName.textContent = file.name;
+        const reader = new FileReader();
+        reader.onload = ()=>{ photoPreview.src = reader.result; photoPreview.hidden = false; };
+        reader.readAsDataURL(file);
+      });
+
       const btn = document.getElementById('issueSubmit');
       btn.onclick = async ()=>{
         const text = document.getElementById('issueText').value.trim();
         const author = currentSession.user.email; // always the signed-in account, not a free-typed name
-        if(!text) return;
+        const photoFile = photoInput.files[0] || null;
+        if(!text && !photoFile) return;
         btn.disabled = true;
+        let photoUrl = null;
+        if(photoFile){
+          btn.textContent = 'Uploading photo…';
+          const path = `${u.vin}/${Date.now()}-${photoFile.name}`.replace(/\s+/g,'_');
+          const { error: upErr } = await sb.storage.from('issue-photos').upload(path, photoFile);
+          if(upErr){
+            const errEl = document.getElementById('issuePhotoError');
+            errEl.textContent = 'Photo upload failed: ' + upErr.message;
+            errEl.hidden = false;
+            btn.disabled = false;
+            btn.textContent = 'Add issue';
+            return;
+          }
+          photoUrl = sb.storage.from('issue-photos').getPublicUrl(path).data.publicUrl;
+        }
         const items = (currentRowData && currentRowData.issues) || [];
-        items.push({ts: Date.now(), author, text});
+        items.push({ts: Date.now(), author, text, photoUrl});
         const ok = await upsertUnitRow(u.vin, { issues: items });
-        if(ok) document.getElementById('issueText').value = '';
+        if(ok){
+          document.getElementById('issueText').value = '';
+          photoInput.value = '';
+          photoPreview.hidden = true;
+          photoName.textContent = '';
+        }
         btn.disabled = false;
+        btn.textContent = 'Add issue';
       };
     }
   } else {
@@ -1960,7 +2009,7 @@ const REPORT_METRICS = [
   {key:"tcfIn", label:"TCF In"},
   {key:"tcfOut", label:"TCF Out"},
   {key:"inspectionIn", label:"VQ In"},
-  {key:"inspectionOut", label:"VQ OK"},
+  {key:"inspectionOut", label:"QC OK"},
 ];
 const REPORT_KEYS = REPORT_METRICS.map(m=>m.key);
 
@@ -2059,6 +2108,30 @@ function computeCycleTimes(){
 }
 function avg(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
 
+// null = default (longest first, the original behavior); otherwise the
+// column clicked in the "Longest individual stage durations" table header.
+let cycleSortCol = null;
+let cycleSortDir = 1;
+function updateCycleSortIcons(){
+  document.querySelectorAll('#tabReport .sortic').forEach(el=>{
+    const col = el.dataset.col;
+    if(col === cycleSortCol){
+      el.textContent = cycleSortDir===1 ? '▲' : '▼';
+      el.classList.add('active');
+    } else {
+      el.textContent = '⇅';
+      el.classList.remove('active');
+    }
+  });
+}
+document.querySelectorAll('#tabReport th.sortable').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const col = th.dataset.col;
+    if(cycleSortCol === col){ cycleSortDir = -cycleSortDir; } else { cycleSortCol = col; cycleSortDir = 1; }
+    renderCycleTime();
+  });
+});
+
 function renderCycleTime(){
   const {byStage, entries} = computeCycleTimes();
   const tiles = [
@@ -2072,7 +2145,18 @@ function renderCycleTime(){
     `<div class="kpi ${t.cls}"><div class="n">${t.n}</div><div class="l">${t.l}</div></div>`
   ).join('');
 
+  // Which 20 entries qualify is always "longest first"; sorting only
+  // changes the order they're displayed in, same as the Units table.
   const top = entries.slice().sort((a,b)=>b.days-a.days).slice(0,20);
+  if(cycleSortCol){
+    const keyFn = { vin: e=>e.u.vin||'', stage: e=>e.label||'', days: e=>e.days }[cycleSortCol];
+    top.sort((a,b)=>{
+      const ka = keyFn(a), kb = keyFn(b);
+      const cmp = typeof ka==='string' ? ka.localeCompare(kb) : (ka-kb);
+      return cmp * cycleSortDir;
+    });
+  }
+  updateCycleSortIcons();
   const body = document.getElementById('cycleOutliersBody');
   body.innerHTML = top.length ? top.map(e=>
     `<tr class="detail-row" data-vin="${e.u.vin}" data-sr="${e.u.sr}"><td><span class="vin">${e.u.vin}</span></td><td>${e.label}</td><td>${e.days}</td></tr>`
