@@ -210,6 +210,8 @@ tbody tr:last-child td{border-bottom:none}
 .markbtn{background:var(--accent);color:#fff;border:none;border-radius:20px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer}
 .markbtn:disabled{opacity:.5;cursor:default}
 .clearbtn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;line-height:1}
+.dangerbtn{background:var(--bad-soft);color:var(--bad);border:1px solid transparent;border-radius:20px;padding:5px 12px;font-size:11.5px;font-weight:600;cursor:pointer}
+.dangerbtn:hover{border-color:var(--bad)}
 .clearbtn:hover{color:var(--bad)}
 .checklist{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
 .cgroup{display:flex;justify-content:space-between;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-top:10px;margin-bottom:5px}
@@ -312,11 +314,13 @@ tbody tr:last-child td{border-bottom:none}
       <div class="uploadrow">
         <div class="uploadlbl">LX3 Defect Report <span class="emptynote">(LX3 defect report.xlsx)</span></div>
         <label class="filebtn">Choose file<input type="file" id="uploadDefects" accept=".xlsx"></label>
+        <button type="button" class="dangerbtn" id="clearDefectsBtn" title="Admin only: delete all uploaded defect report data" hidden>Clear</button>
         <span id="uploadDefectsStatus" class="emptynote"></span>
       </div>
       <div class="uploadrow">
         <div class="uploadlbl">Manual Defect Sheet <span class="emptynote">(hand-recorded, with severity)</span></div>
         <label class="filebtn">Choose file<input type="file" id="uploadManualDefects" accept=".xlsx"></label>
+        <button type="button" class="dangerbtn" id="clearManualDefectsBtn" title="Admin only: delete all uploaded manual defect data" hidden>Clear</button>
         <span id="uploadManualDefectsStatus" class="emptynote"></span>
       </div>
     </div>
@@ -589,6 +593,8 @@ function renderAuthArea(){
   const scopeBtnEl = document.getElementById('scopeBtn');
   const uploadBtnEl = document.getElementById('uploadBtn');
   const usersBtnEl = document.getElementById('usersBtn');
+  const clearDefectsBtnEl = document.getElementById('clearDefectsBtn');
+  const clearManualDefectsBtnEl = document.getElementById('clearManualDefectsBtn');
   const authGate = document.getElementById('authGate');
   const mainContent = document.getElementById('mainContent');
   if(!sb){
@@ -596,6 +602,8 @@ function renderAuthArea(){
     if(scopeBtnEl) scopeBtnEl.hidden = false; // no Supabase configured — nothing to gate behind, so no sign-in page either
     if(uploadBtnEl) uploadBtnEl.hidden = true;
     if(usersBtnEl) usersBtnEl.hidden = true;
+    if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = true;
+    if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = true;
     authGate.hidden = true; mainContent.hidden = false; // no Supabase configured — nothing to gate behind
     return;
   }
@@ -608,6 +616,8 @@ function renderAuthArea(){
     if(scopeBtnEl) scopeBtnEl.hidden = false;
     if(uploadBtnEl) uploadBtnEl.hidden = !canWriteNow();
     if(usersBtnEl) usersBtnEl.hidden = currentRole !== 'admin';
+    if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = currentRole !== 'admin';
+    if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = currentRole !== 'admin';
     authGate.hidden = true;
     mainContent.hidden = false;
   } else {
@@ -617,6 +627,8 @@ function renderAuthArea(){
     if(scopeBtnEl) scopeBtnEl.hidden = true;
     if(uploadBtnEl) uploadBtnEl.hidden = true;
     if(usersBtnEl) usersBtnEl.hidden = true;
+    if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = true;
+    if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = true;
     authGate.hidden = false;
     mainContent.hidden = true;
   }
@@ -2302,6 +2314,35 @@ function wireManualUpload(){
   });
 }
 wireManualUpload();
+
+// ---------- Admin-only: clear previously uploaded defect data ----------
+// A plain delete, not an upload — separate from wireUpload/wireManualUpload
+// above since there's no file involved, just wiping the table(s).
+function wireClearButton(btnId, statusId, label, tables){
+  const btn = document.getElementById(btnId);
+  const statusEl = document.getElementById(statusId);
+  btn.addEventListener('click', async ()=>{
+    if(currentRole !== 'admin') return; // belt-and-suspenders — button is hidden for non-admins anyway
+    if(!confirm(`Delete all uploaded ${label} data? This cannot be undone.`)) return;
+    btn.disabled = true;
+    statusEl.textContent = 'Clearing…';
+    try{
+      for(const {table, col} of tables){
+        const { error } = await sb.from(table).delete().not(col, 'is', null);
+        if(error) throw error;
+      }
+    }catch(e){
+      statusEl.textContent = 'Clear failed: ' + e.message;
+      btn.disabled = false;
+      return;
+    }
+    await initData();
+    statusEl.textContent = `Cleared — no ${label} data remains.`;
+    btn.disabled = false;
+  });
+}
+wireClearButton('clearDefectsBtn', 'uploadDefectsStatus', 'LX3 defect report', [{table:'defect_rows', col:'id'}]);
+wireClearButton('clearManualDefectsBtn', 'uploadManualDefectsStatus', 'manual defect sheet', [{table:'manual_defects', col:'id'}, {table:'manual_vehicle_status', col:'vin'}]);
 
 // Wire up auth state here, last — everything onAuthChanged/renderDrawerRow/
 // loadReport/renderAnalysis touch is now guaranteed to already be declared.
