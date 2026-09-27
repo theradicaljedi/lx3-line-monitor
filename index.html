@@ -2232,7 +2232,11 @@ function wireManualUpload(){
     let rows;
     try{ rows = await readWorkbookRows(file); }
     catch(e){ statusEl.textContent = 'Could not read this file: ' + e.message; return; }
-    const headerRowIdx = rows.findIndex(r => r && (r[2]||'').toString().toUpperCase().includes('CHASSIS'));
+    // The sheet's used range starts at column B, not A (dimension "B1:L385")
+    // — sheet_to_json's header:1 array is indexed relative to the range's
+    // first column, so index 0 here is column B, index 1 is column C, etc.
+    // (one lower than counting spreadsheet columns A,B,C... from A).
+    const headerRowIdx = rows.findIndex(r => r && (r[1]||'').toString().toUpperCase().includes('CHASSIS'));
     if(headerRowIdx === -1){
       statusEl.textContent = 'This doesn\'t look like the expected file — no header row with "Chassis Number" found.';
       return;
@@ -2246,24 +2250,24 @@ function wireManualUpload(){
     for(let i=headerRowIdx+2; i<rows.length; i++){
       const r = rows[i];
       if(!r) continue;
-      const dateCell = r[1];
+      const dateCell = r[0];
       if(dateCell === 'TOTAL') continue; // per-VIN summary row — not a defect row
       if(dateCell != null){
         // First row of a new VIN's block.
-        currentVin = (r[2]||'').toString().trim();
+        currentVin = (r[1]||'').toString().trim();
         currentDate = dateCell;
-        const rawLoc = (r[9]||'').toString().trim();
+        const rawLoc = (r[8]||'').toString().trim();
         if(currentVin && rawLoc){
           const lines = rawLoc.split('\n').map(s=>s.trim()).filter(Boolean);
           statuses.set(currentVin.slice(-6), { location: lines[0]||null, location_note: lines.slice(1).join(' ')||null });
         }
       }
-      const station = (r[3]||'').toString().trim();
+      const station = (r[2]||'').toString().trim();
       if(!station || !currentVin) continue; // a metadata-only row, nothing to record
-      const desc = (r[5]||'').toString().trim();
+      const desc = (r[4]||'').toString().trim();
       const hasDefect = !!desc && desc!=='NIL' && desc!=='.';
-      const deptCode = (r[4]||'').toString().trim();
-      const severity = (r[6]===1||r[6]==='1') ? 'Low' : (r[7]===1||r[7]==='1') ? 'Medium' : (r[8]===1||r[8]==='1') ? 'Major' : null;
+      const deptCode = (r[3]||'').toString().trim();
+      const severity = (r[5]===1||r[5]==='1') ? 'Low' : (r[6]===1||r[6]==='1') ? 'Medium' : (r[7]===1||r[7]==='1') ? 'Major' : null;
       defects.push({
         vin: currentVin.slice(-6),
         station,
