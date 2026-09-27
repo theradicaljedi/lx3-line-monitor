@@ -314,6 +314,11 @@ tbody tr:last-child td{border-bottom:none}
         <label class="filebtn">Choose file<input type="file" id="uploadDefects" accept=".xlsx"></label>
         <span id="uploadDefectsStatus" class="emptynote"></span>
       </div>
+      <div class="uploadrow">
+        <div class="uploadlbl">Manual Defect Sheet <span class="emptynote">(hand-recorded, with severity)</span></div>
+        <label class="filebtn">Choose file<input type="file" id="uploadManualDefects" accept=".xlsx"></label>
+        <span id="uploadManualDefectsStatus" class="emptynote"></span>
+      </div>
     </div>
   </div>
 
@@ -1201,6 +1206,16 @@ function setTileFilter(code){
   renderKPIs();
   renderTable();
 }
+// "Inspection in" (status 4000) covers two physically different places on
+// the floor: still working through the 12-step tester line, or already
+// moved to Q-UP once step 12 (Dynamic test) is ticked off. Split the one
+// KPI tile into two so that move is visible without opening every VIN card.
+function testerLineCount(){
+  return ALL_UNITS.filter(u=>u.statusCode==="4000" && groupProgress(u,"tester")<12).length;
+}
+function qupStageCount(){
+  return ALL_UNITS.filter(u=>u.statusCode==="4000" && groupProgress(u,"tester")>=12).length;
+}
 function renderKPIs(){
   const includedStageDefs = ALL_STAGES.filter(s=>included.has(s.code));
   const totalInScope = includedStageDefs.reduce((sum,s)=>sum+stageCount(s.code), 0);
@@ -1208,7 +1223,15 @@ function renderKPIs(){
   const tiles = [
     {n:totalInScope, l:"Total units (in scope)", cls:"", filter:null},
     {n:wipInScope, l:"Selected WIP", cls:"warn", filter:"WIP"},
-    ...includedStageDefs.map(s=>({n:stageCount(s.code), l:s.label, cls:KPI_CLS[s.code]||"", filter:s.code})),
+    ...includedStageDefs.flatMap(s=>{
+      if(s.code==="4000"){
+        return [
+          {n:testerLineCount(), l:"Tester Line", cls:KPI_CLS[s.code]||"", filter:"4000-TESTER"},
+          {n:qupStageCount(), l:"Q-UP", cls:KPI_CLS[s.code]||"", filter:"4000-QUP"},
+        ];
+      }
+      return [{n:stageCount(s.code), l:s.label, cls:KPI_CLS[s.code]||"", filter:s.code}];
+    }),
   ];
   kpisEl.innerHTML = tiles.length
     ? tiles.map(k=>{
@@ -1365,6 +1388,8 @@ function renderTable(){
   const colorQ = colorFilterEl.value;
   const rows = units.filter(u=>{
     if(tileFilter==="WIP"){ if(u.statusCode==="PLAN"||u.statusCode==="USTK") return false; }
+    else if(tileFilter==="4000-TESTER"){ if(u.statusCode!=="4000" || groupProgress(u,"tester")>=12) return false; }
+    else if(tileFilter==="4000-QUP"){ if(u.statusCode!=="4000" || groupProgress(u,"tester")<12) return false; }
     else if(tileFilter){ if(u.statusCode!==tileFilter) return false; }
     if(colorQ && u.colorDesc!==colorQ) return false;
     if(q){
@@ -2186,6 +2211,93 @@ wireUpload('uploadDefects', 'uploadDefectsStatus', {
     return `Done — ${defects} defects across ${units} inspected units.`;
   },
 });
+
+// ---------- Manual defect sheet upload ----------
+// A different shape from the two uploads above (wireUpload assumes one row
+// = one record): each VIN's block is several rows tall — a date only on
+// the group's first row, then one row per inspection station, closed by a
+// "TOTAL" row — so this walks the rows as a small state machine instead of
+// a per-row parseRow. It also carries two fields the other defect report
+// doesn't: a Low/Medium/Major severity per defect, and the vehicle's
+// current physical location/status (its own table, one row per VIN).
+function wireManualUpload(){
+  const input = document.getElementById('uploadManualDefects');
+  const statusEl = document.getElementById('uploadManualDefectsStatus');
+  input.addEventListener('change', async ()=>{
+    const file = input.files[0];
+    input.value = ''; // allow re-choosing the same filename later
+    if(!file) return;
+    if(!canWriteNow()){ statusEl.textContent = !sb ? 'Sign in first.' : !currentSession ? 'Sign in first.' : 'Viewers cannot upload data.'; return; }
+    statusEl.textContent = 'Reading file…';
+    let rows;
+    try{ rows = await readWorkbookRows(file); }
+    catch(e){ statusEl.textContent = 'Could not read this file: ' + e.message; return; }
+    const headerRowIdx = rows.findIndex(r => r && (r[2]||'').toString().toUpperCase().includes('CHASSIS'));
+    if(headerRowIdx === -1){
+      statusEl.textContent = 'This doesn\'t look like the expected file — no header row with "Chassis Number" found.';
+      return;
+    }
+    const DEPT_LABELS = { BS:'Body Shop', PS:'Paint Shop', TCF:'TCF', PPS:'Plastic Paint Shop' };
+    const defects = [];
+    const statuses = new Map(); // 6-digit vin suffix -> {location, location_note}
+    let currentVin = null, currentDate = null;
+    // Data starts two rows below the header: the row directly under it is
+    // the Low/Medium/Major sub-header, not real data.
+    for(let i=headerRowIdx+2; i<rows.length; i++){
+      const r = rows[i];
+      if(!r) continue;
+      const dateCell = r[1];
+      if(dateCell === 'TOTAL') continue; // per-VIN summary row — not a defect row
+      if(dateCell != null){
+        // First row of a new VIN's block.
+        currentVin = (r[2]||'').toString().trim();
+        currentDate = dateCell;
+        const rawLoc = (r[9]||'').toString().trim();
+        if(currentVin && rawLoc){
+          const lines = rawLoc.split('\n').map(s=>s.trim()).filter(Boolean);
+          statuses.set(currentVin.slice(-6), { location: lines[0]||null, location_note: lines.slice(1).join(' ')||null });
+        }
+      }
+      const station = (r[3]||'').toString().trim();
+      if(!station || !currentVin) continue; // a metadata-only row, nothing to record
+      const desc = (r[5]||'').toString().trim();
+      const hasDefect = !!desc && desc!=='NIL' && desc!=='.';
+      const deptCode = (r[4]||'').toString().trim();
+      const severity = (r[6]===1||r[6]==='1') ? 'Low' : (r[7]===1||r[7]==='1') ? 'Medium' : (r[8]===1||r[8]==='1') ? 'Major' : null;
+      defects.push({
+        vin: currentVin.slice(-6),
+        station,
+        department: DEPT_LABELS[deptCode] || deptCode || null,
+        description: hasDefect ? desc : null,
+        severity: hasDefect ? severity : null,
+        defect_serial: currentDate || null,
+        has_defect: hasDefect,
+      });
+    }
+    if(!defects.length){ statusEl.textContent = 'No data rows found in this file.'; return; }
+    statusEl.textContent = `Uploading ${defects.length} rows…`;
+    try{
+      const delD = await sb.from('manual_defects').delete().not('id', 'is', null);
+      if(delD.error) throw delD.error;
+      const insD = await sb.from('manual_defects').insert(defects);
+      if(insD.error) throw insD.error;
+      const statusRows = [...statuses.entries()].map(([vin, s])=>({vin, location:s.location, location_note:s.location_note}));
+      if(statusRows.length){
+        const delS = await sb.from('manual_vehicle_status').delete().not('vin', 'is', null);
+        if(delS.error) throw delS.error;
+        const insS = await sb.from('manual_vehicle_status').upsert(statusRows);
+        if(insS.error) throw insS.error;
+      }
+    }catch(e){
+      statusEl.textContent = 'Upload failed: ' + e.message;
+      return;
+    }
+    const defectCount = defects.filter(d=>d.has_defect).length;
+    const units = new Set(defects.map(d=>d.vin)).size;
+    statusEl.textContent = `Done — ${defectCount} defects (severity-rated) across ${units} units, ${statuses.size} with a current location.`;
+  });
+}
+wireManualUpload();
 
 // Wire up auth state here, last — everything onAuthChanged/renderDrawerRow/
 // loadReport/renderAnalysis touch is now guaranteed to already be declared.
