@@ -150,9 +150,10 @@ tbody tr:last-child td{border-bottom:none}
 #unitsTable th:nth-child(1),#unitsTable td:nth-child(1){width:50px}
 #unitsTable th:nth-child(2),#unitsTable td:nth-child(2){width:190px}
 #unitsTable th:nth-child(3),#unitsTable td:nth-child(3){width:110px}
-#unitsTable th:nth-child(4),#unitsTable td:nth-child(4){width:180px}
-#unitsTable th:nth-child(5),#unitsTable td:nth-child(5){width:150px}
-#unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:110px}
+#unitsTable th:nth-child(4),#unitsTable td:nth-child(4){width:160px}
+#unitsTable th:nth-child(5),#unitsTable td:nth-child(5){width:130px}
+#unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:80px}
+#unitsTable th:nth-child(7),#unitsTable td:nth-child(7){width:110px}
 #unitsTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #unitsTable th.sortable{cursor:pointer;user-select:none}
 #unitsTable th.sortable:hover{color:var(--ink)}
@@ -173,6 +174,7 @@ tbody tr:last-child td{border-bottom:none}
 .vqmini{display:flex;gap:3px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
 .dot.on{background:var(--good)}
+.dot-red.on{background:var(--bad)}
 
 .overlay{position:fixed;inset:0;background:var(--surface);z-index:50;opacity:0;pointer-events:none;transition:opacity .18s}
 .overlay.open{opacity:1;pointer-events:auto}
@@ -455,7 +457,8 @@ tbody tr:last-child td{border-bottom:none}
             <th class="sortable" data-col="vin">VIN <span class="sortic" data-col="vin"></span></th>
             <th class="sortable" data-col="color">Color <span class="sortic" data-col="color"></span></th>
             <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
-            <th class="sortable" data-col="vq">VQ line <span class="sortic" data-col="vq"></span></th>
+            <th class="sortable" data-col="vq">Tester Line <span class="sortic" data-col="vq"></span></th>
+            <th class="sortable" data-col="qup">Q-UP <span class="sortic" data-col="qup"></span></th>
             <th class="sortable" data-col="wip">Days in WIP <span class="sortic" data-col="wip"></span></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
@@ -1324,26 +1327,31 @@ document.querySelectorAll('#unitsTable th.sortable').forEach(th=>{
 function stageBadgeHtml(u){
   return `<span class="badge" style="background:color-mix(in srgb, ${u.stage.color} 16%, transparent);color:${u.stage.color}">${u.stage.label}</span>`;
 }
-function vqTesterProgress(u){
+function checklistStateFor(u){
+  const row = u.vin ? UNIT_ROWS_CACHE[u.vin] : null;
+  const seed = seedChecklist(u.vinSuffix);
+  return (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
+}
+function groupProgress(u, groupKey){
   // -1 for "hasn't reached inspection" so it sorts before/after actual
-  // progress counts (0-12) rather than landing in the middle of them.
+  // progress counts rather than landing in the middle of them.
   if(!reachedInspection(u)) return -1;
-  const row = u.vin ? UNIT_ROWS_CACHE[u.vin] : null;
-  const seed = seedChecklist(u.vinSuffix);
-  const state = (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
-  const testerKeys = CHECKLIST_ITEMS.filter(it=>it.group==="tester").map(it=>it.key);
-  return testerKeys.filter(k=>state[k]).length;
+  const state = checklistStateFor(u);
+  const keys = CHECKLIST_ITEMS.filter(it=>it.group===groupKey).map(it=>it.key);
+  return keys.filter(k=>state[k]).length;
 }
-function vqMiniHtml(u){
+function groupMiniHtml(u, groupKey, label, dotClass){
   if(!reachedInspection(u)) return '<span class="emptynote">&mdash;</span>';
-  const row = u.vin ? UNIT_ROWS_CACHE[u.vin] : null;
-  const seed = seedChecklist(u.vinSuffix);
-  const state = (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
-  const testerKeys = CHECKLIST_ITEMS.filter(it=>it.group==="tester").map(it=>it.key);
-  const on = testerKeys.filter(k=>state[k]).length;
-  const dots = testerKeys.map((k,i)=>`<span class="dot ${state[k]?'on':''}"></span>`).join('');
-  return `<div class="vqmini" title="${on}/${testerKeys.length} VQ tester steps">${dots}</div>`;
+  const state = checklistStateFor(u);
+  const keys = CHECKLIST_ITEMS.filter(it=>it.group===groupKey).map(it=>it.key);
+  const on = keys.filter(k=>state[k]).length;
+  const dots = keys.map(k=>`<span class="dot ${dotClass} ${state[k]?'on':''}"></span>`).join('');
+  return `<div class="vqmini" title="${on}/${keys.length} ${label}">${dots}</div>`;
 }
+function vqTesterProgress(u){ return groupProgress(u, "tester"); }
+function vqMiniHtml(u){ return groupMiniHtml(u, "tester", "VQ tester steps", ""); }
+function qupProgress(u){ return groupProgress(u, "final"); }
+function qupMiniHtml(u){ return groupMiniHtml(u, "final", "VQ final inspection steps", "dot-red"); }
 
 function renderTable(){
   // "Include BU" is a dedicated, standalone control for BU Stock units in
@@ -1373,6 +1381,7 @@ function renderTable(){
       color: u=>u.colorDesc||u.colorCode||'',
       stage: u=>stageOrder[u.statusCode],
       vq: u=>vqTesterProgress(u),
+      qup: u=>qupProgress(u),
       wip: u=>u.wipDays==null ? -1 : u.wipDays,
     }[sortCol];
     rows.sort((a,b)=>{
@@ -1398,9 +1407,10 @@ function renderTable(){
       <td>${swatch}${u.colorCode||'<span class="emptynote">pending</span>'}</td>
       <td>${stageBadgeHtml(u)}</td>
       <td>${vqMiniHtml(u)}</td>
+      <td>${qupMiniHtml(u)}</td>
       <td>${wip}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="6"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
+  }).join('') || `<tr><td colspan="7"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
 }
 searchEl.addEventListener('input', renderTable);
 stageFilterEl.addEventListener('change', ()=>{
