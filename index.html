@@ -509,6 +509,12 @@ tbody tr:last-child td{border-bottom:none}
         <h2>Defects by department</h2>
         <div class="funnel" id="defectByDept"></div>
       </div>
+
+      <div class="panel">
+        <h2>Defects by severity</h2>
+        <div class="desc">From the manually recorded defect sheet's Low/Medium/Major rating &mdash; defects from the other (VIN-wise) report show as Unrated.</div>
+        <div class="funnel" id="defectBySeverity"></div>
+      </div>
     </div>
 
     <div class="panel">
@@ -1869,6 +1875,33 @@ function renderAnalysis(){
     el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
   });
 
+  // ---- Defects by severity: each bar opens that severity's defects ----
+  // Only the manual defect sheet rates severity — everything from the
+  // VIN-wise defect report has no rating and falls into "Unrated".
+  const SEVERITY_ORDER = ['Major','Medium','Low'];
+  const severityLabels = [...SEVERITY_ORDER, 'Unrated'];
+  const bySeverity = severityLabels.map(label=>({
+    label,
+    count: DEFECTS.filter(d=> (d[5]||'Unrated') === label).length
+  })).filter(d=>d.count>0);
+  const maxSeverity = Math.max(1, ...bySeverity.map(d=>d.count));
+  const SEVERITY_COLOR = { Major:'var(--bad)', Medium:'var(--warn)', Low:'var(--accent)', Unrated:'var(--plan)' };
+  const severityEl = document.getElementById('defectBySeverity');
+  severityEl.innerHTML = bySeverity.map((d,i)=>{
+    const pct = Math.max(4, Math.round(d.count/maxSeverity*100));
+    return `<div class="frow" data-i="${i}" tabindex="0" role="button" style="cursor:pointer">
+      <div class="lbl">${d.label}</div>
+      <div class="ftrack"><div class="ffill" style="width:${pct}%;background:${SEVERITY_COLOR[d.label]}"></div></div>
+      <div class="cnt">${d.count}</div>
+    </div>`;
+  }).join('') || `<div class="emptynote">No defects recorded.</div>`;
+  severityEl.querySelectorAll('.frow').forEach(el=>{
+    const d = bySeverity[+el.dataset.i];
+    const open = ()=>openDefectDetail(d.label, `${d.count} defects rated ${d.label}`, 'defects', DEFECTS.filter(x=>(x[5]||'Unrated')===d.label));
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
+  });
+
   // ---- Most frequent defects: each row opens every unit with that exact defect ----
   const byDesc = {};
   DEFECTS.forEach(d=>{
@@ -2078,6 +2111,12 @@ async function loadDefectsFromSupabase(){
   if(error){ console.error(error); return null; }
   return data; // [] is meaningful here (an uploaded report with zero rows), unlike production
 }
+async function loadManualDefectsFromSupabase(){
+  if(!sb) return null;
+  const { data, error } = await sb.from('manual_defects').select('*');
+  if(error){ console.error(error); return null; }
+  return data;
+}
 function rebuildAllUnits(){
   const mapped = ROWS.map(r=>{
     const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
@@ -2095,16 +2134,26 @@ function rebuildAllUnits(){
 }
 async function initData(){
   if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
-  const [prodRows, defRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase(), loadUnitRowsCache()]);
+  const [prodRows, defRows, , manualRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase(), loadUnitRowsCache(), loadManualDefectsFromSupabase()]);
   if(prodRows && prodRows.length){
     ROWS.length = 0; ROWS.push(...prodRows);
     rebuildAllUnits();
   }
-  if(defRows){
+  if(defRows || manualRows){
     DEFECTS.length = 0;
-    DEFECTS.push(...defRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null]));
     INSPECTED_VINS.clear();
-    new Set(defRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
+    // Combined into one list — the VIN-wise defect report and the manual
+    // defect sheet both describe the same real defects, just from two
+    // different upload sources, so every existing defect view (station
+    // bars, frequent defects, per-VIN counts) should reflect both.
+    if(defRows){
+      DEFECTS.push(...defRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, null]));
+      new Set(defRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
+    }
+    if(manualRows){
+      DEFECTS.push(...manualRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, r.severity||null]));
+      new Set(manualRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
+    }
   }
   renderStagePicker(); // its per-stage counts read ROWS directly — stale otherwise
   renderAll();
@@ -2308,6 +2357,8 @@ function wireManualUpload(){
       statusEl.textContent = 'Upload failed: ' + e.message;
       return;
     }
+    statusEl.textContent = 'Loading…';
+    await initData();
     const defectCount = defects.filter(d=>d.has_defect).length;
     const units = new Set(defects.map(d=>d.vin)).size;
     statusEl.textContent = `Done — ${defectCount} defects (severity-rated) across ${units} units, ${statuses.size} with a current location.`;
