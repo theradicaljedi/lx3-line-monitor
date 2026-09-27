@@ -39,7 +39,7 @@
   color-scheme: dark;
 }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0}
+html,body{margin:0;padding:0;overflow-x:hidden}
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui,sans-serif;font-size:14px;line-height:1.45}
 .wrap{max-width:1280px;margin:0 auto;padding:20px 20px 64px}
@@ -259,7 +259,9 @@ th.sortable:hover{color:var(--ink)}
 .issueform button:disabled{opacity:.5;cursor:default}
 .issuephotorow{display:flex;align-items:center;gap:8px;margin:8px 0}
 .filebtn.small{padding:5px 12px;font-size:11.5px}
-.issuephotopreview{display:block;max-width:160px;max-height:120px;border-radius:8px;margin-bottom:8px;object-fit:cover}
+.issuephotopreviewwrap{position:relative;display:inline-block;margin-bottom:8px}
+.issuephotopreview{display:block;max-width:160px;max-height:120px;border-radius:8px;object-fit:cover}
+.issuephotopreviewwrap .clearbtn{position:absolute;top:-8px;right:-8px;background:var(--surface);border:1px solid var(--line);border-radius:50%;width:22px;height:22px;box-shadow:var(--shadow);font-size:14px}
 .issue .issuephoto{display:block;max-width:220px;max-height:160px;border-radius:8px;margin-top:8px;object-fit:cover;cursor:pointer}
 .emptynote{font-size:12px;color:var(--muted);font-style:italic}
 .foot{color:var(--muted);font-size:11.5px;margin-top:22px;text-align:center}
@@ -1749,10 +1751,14 @@ function openDrawer(vin, sr){
         <div class="issueform">
           <textarea id="issueText" placeholder="Describe the issue on this unit&hellip;"></textarea>
           <div class="issuephotorow">
-            <label class="filebtn small">Take/attach photo<input type="file" id="issuePhoto" accept="image/*" ${(u.vin && canWriteNow())?'':'disabled'}></label>
+            <label class="filebtn small">Take photo<input type="file" id="issuePhotoCamera" accept="image/*" capture="environment" ${(u.vin && canWriteNow())?'':'disabled'}></label>
+            <label class="filebtn small">Attach photo<input type="file" id="issuePhotoAttach" accept="image/*" ${(u.vin && canWriteNow())?'':'disabled'}></label>
             <span id="issuePhotoName" class="emptynote"></span>
           </div>
-          <img id="issuePhotoPreview" class="issuephotopreview" hidden>
+          <div class="issuephotopreviewwrap" id="issuePhotoPreviewWrap" hidden>
+            <img id="issuePhotoPreview" class="issuephotopreview">
+            <button type="button" class="clearbtn" id="issuePhotoClear" title="Remove selected photo">&times;</button>
+          </div>
           <div id="issuePhotoError" class="signin-error" hidden></div>
           <button id="issueSubmit" ${(u.vin && canWriteNow())?'':'disabled'}>${!sb ? 'Supabase not configured' : !currentSession ? 'Sign in to add issues' : !canWriteNow() ? 'Viewers cannot add issues' : (u.vin? 'Add issue' : 'Assign a VIN before logging issues')}</button>
         </div>
@@ -1771,23 +1777,39 @@ function openDrawer(vin, sr){
     unsubRow = subscribeUnitRow(u.vin, row=>renderDrawerRow(row));
 
     if(canWriteNow()){
-      const photoInput = document.getElementById('issuePhoto');
+      const photoCamera = document.getElementById('issuePhotoCamera');
+      const photoAttach = document.getElementById('issuePhotoAttach');
       const photoPreview = document.getElementById('issuePhotoPreview');
+      const photoPreviewWrap = document.getElementById('issuePhotoPreviewWrap');
       const photoName = document.getElementById('issuePhotoName');
-      photoInput.addEventListener('change', ()=>{
-        const file = photoInput.files[0];
-        if(!file){ photoPreview.hidden = true; photoName.textContent = ''; return; }
+      let selectedPhoto = null;
+      function clearSelectedPhoto(){
+        selectedPhoto = null;
+        photoCamera.value = ''; photoAttach.value = '';
+        photoPreviewWrap.hidden = true;
+        photoName.textContent = '';
+      }
+      document.getElementById('issuePhotoClear').addEventListener('click', clearSelectedPhoto);
+      function onPhotoChosen(input){
+        const file = input.files[0];
+        if(!file) return;
+        selectedPhoto = file;
+        // Picking one clears the other input, so there's only ever one
+        // candidate photo regardless of which button was used.
+        (input===photoCamera ? photoAttach : photoCamera).value = '';
         photoName.textContent = file.name;
         const reader = new FileReader();
-        reader.onload = ()=>{ photoPreview.src = reader.result; photoPreview.hidden = false; };
+        reader.onload = ()=>{ photoPreview.src = reader.result; photoPreviewWrap.hidden = false; };
         reader.readAsDataURL(file);
-      });
+      }
+      photoCamera.addEventListener('change', ()=>onPhotoChosen(photoCamera));
+      photoAttach.addEventListener('change', ()=>onPhotoChosen(photoAttach));
 
       const btn = document.getElementById('issueSubmit');
       btn.onclick = async ()=>{
         const text = document.getElementById('issueText').value.trim();
         const author = currentSession.user.email; // always the signed-in account, not a free-typed name
-        const photoFile = photoInput.files[0] || null;
+        const photoFile = selectedPhoto;
         if(!text && !photoFile) return;
         btn.disabled = true;
         let photoUrl = null;
@@ -1810,9 +1832,7 @@ function openDrawer(vin, sr){
         const ok = await upsertUnitRow(u.vin, { issues: items });
         if(ok){
           document.getElementById('issueText').value = '';
-          photoInput.value = '';
-          photoPreview.hidden = true;
-          photoName.textContent = '';
+          clearSelectedPhoto();
         }
         btn.disabled = false;
         btn.textContent = 'Add issue';
