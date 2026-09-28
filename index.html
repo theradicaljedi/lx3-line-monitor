@@ -558,6 +558,7 @@ th.sortable:hover{color:var(--ink)}
       <div class="toolbar">
         <input type="search" id="activitySearch" placeholder="Search user, action, VIN&hellip;">
         <span class="count" id="activityCount"></span>
+        <button type="button" class="dangerbtn" id="activityClearAll" hidden>Clear all</button>
       </div>
       <div class="tablewrap">
         <table id="activityTable">
@@ -566,8 +567,9 @@ th.sortable:hover{color:var(--ink)}
             <th class="sortable" data-col="user">User <span class="sortic" data-col="user"></span></th>
             <th class="sortable" data-col="action">Action <span class="sortic" data-col="action"></span></th>
             <th class="sortable" data-col="detail">Detail <span class="sortic" data-col="detail"></span></th>
+            <th id="activityActionsHead" hidden></th>
           </tr></thead>
-          <tbody id="activityBody"><tr><td colspan="4"><div class="emptynote">Loading&hellip;</div></td></tr></tbody>
+          <tbody id="activityBody"><tr><td colspan="5"><div class="emptynote">Loading&hellip;</div></td></tr></tbody>
         </table>
       </div>
     </div>
@@ -2108,14 +2110,17 @@ const ACTION_LABELS = {
 };
 async function loadActivityLog(){
   const body = document.getElementById('activityBody');
-  if(!sb){ body.innerHTML = '<tr><td colspan="4"><div class="emptynote">Supabase not configured.</div></td></tr>'; return; }
-  body.innerHTML = '<tr><td colspan="4"><div class="emptynote">Loading&hellip;</div></td></tr>';
+  if(!sb){ body.innerHTML = '<tr><td colspan="5"><div class="emptynote">Supabase not configured.</div></td></tr>'; return; }
+  body.innerHTML = '<tr><td colspan="5"><div class="emptynote">Loading&hellip;</div></td></tr>';
   const { data, error } = await sb.from('activity_log').select('*').order('created_at', {ascending:false}).limit(300);
-  if(error){ body.innerHTML = `<tr><td colspan="4"><div class="emptynote">Couldn't load the activity log: ${escapeHtml(error.message)}</div></td></tr>`; return; }
+  if(error){ body.innerHTML = `<tr><td colspan="5"><div class="emptynote">Couldn't load the activity log: ${escapeHtml(error.message)}</div></td></tr>`; return; }
   activityRows = data || [];
   renderActivityLog();
 }
 function renderActivityLog(){
+  const isAdmin = currentRole === 'admin';
+  document.getElementById('activityActionsHead').hidden = !isAdmin;
+  document.getElementById('activityClearAll').hidden = !isAdmin;
   const q = document.getElementById('activitySearch').value.trim().toLowerCase();
   let rows = activityRows.filter(r=>{
     if(!q) return true;
@@ -2139,14 +2144,37 @@ function renderActivityLog(){
   body.innerHTML = rows.length ? rows.map(r=>{
     const when = r.created_at ? new Date(r.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
     const detail = [r.detail, r.vin ? `VIN …${escapeHtml(String(r.vin).slice(-6))}` : null].filter(Boolean).join(' — ');
-    return `<tr><td>${when}</td><td>${escapeHtml(r.actor||'Unknown')}</td><td>${escapeHtml(ACTION_LABELS[r.action]||r.action||'')}</td><td>${escapeHtml(detail)}</td></tr>`;
-  }).join('') : `<tr><td colspan="4"><div class="emptynote">No activity recorded yet.</div></td></tr>`;
+    const delCell = isAdmin ? `<td><button type="button" class="clearbtn" data-actlogid="${escapeHtml(String(r.id))}" title="Delete this entry">&times;</button></td>` : '';
+    return `<tr><td>${when}</td><td>${escapeHtml(r.actor||'Unknown')}</td><td>${escapeHtml(ACTION_LABELS[r.action]||r.action||'')}</td><td>${escapeHtml(detail)}</td>${delCell}</tr>`;
+  }).join('') : `<tr><td colspan="5"><div class="emptynote">No activity recorded yet.</div></td></tr>`;
   document.querySelectorAll('#activityTable .sortic').forEach(el=>{
     const col = el.dataset.col;
     if(col === activitySortCol){ el.textContent = activitySortDir===1 ? '▲' : '▼'; el.classList.add('active'); }
     else { el.textContent = '⇅'; el.classList.remove('active'); }
   });
+  body.querySelectorAll('[data-actlogid]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const id = btn.dataset.actlogid;
+      if(!confirm('Delete this activity log entry? This cannot be undone.')) return;
+      btn.disabled = true;
+      const { error } = await sb.from('activity_log').delete().eq('id', id);
+      if(error){ alert(`Couldn't delete: ${error.message}`); btn.disabled = false; return; }
+      activityRows = activityRows.filter(r=>String(r.id)!==id);
+      renderActivityLog();
+    });
+  });
 }
+document.getElementById('activityClearAll').addEventListener('click', async ()=>{
+  if(!sb || currentRole!=='admin') return;
+  if(!confirm('Delete ALL activity log entries? This cannot be undone.')) return;
+  const btn = document.getElementById('activityClearAll');
+  btn.disabled = true;
+  const { error } = await sb.from('activity_log').delete().not('id','is',null);
+  btn.disabled = false;
+  if(error){ alert(`Couldn't clear the log: ${error.message}`); return; }
+  activityRows = [];
+  renderActivityLog();
+});
 document.querySelectorAll('#activityTable th.sortable').forEach(th=>{
   th.addEventListener('click', ()=>{
     const col = th.dataset.col;
