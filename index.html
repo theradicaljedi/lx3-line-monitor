@@ -152,8 +152,9 @@ tbody tr:last-child td{border-bottom:none}
 #unitsTable th:nth-child(3),#unitsTable td:nth-child(3){width:110px}
 #unitsTable th:nth-child(4),#unitsTable td:nth-child(4){width:160px}
 #unitsTable th:nth-child(5),#unitsTable td:nth-child(5){width:130px}
-#unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:80px}
-#unitsTable th:nth-child(7),#unitsTable td:nth-child(7){width:90px}
+#unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:150px}
+#unitsTable th:nth-child(7),#unitsTable td:nth-child(7){width:80px}
+#unitsTable th.sortable{white-space:nowrap}
 #unitsTable th:nth-child(8),#unitsTable td:nth-child(8){width:110px}
 #unitsTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 th.sortable{cursor:pointer;user-select:none}
@@ -484,8 +485,8 @@ th.sortable:hover{color:var(--ink)}
             <th class="sortable" data-col="color">Color <span class="sortic" data-col="color"></span></th>
             <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
             <th class="sortable" data-col="vq">Tester Line <span class="sortic" data-col="vq"></span></th>
-            <th class="sortable" data-col="qup">Q-UP <span class="sortic" data-col="qup"></span></th>
             <th class="sortable" data-col="repair">FINAL 1 REPAIR <span class="sortic" data-col="repair"></span></th>
+            <th class="sortable" data-col="qup">Q-UP <span class="sortic" data-col="qup"></span></th>
             <th class="sortable" data-col="wip">Days in WIP <span class="sortic" data-col="wip"></span></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
@@ -1542,8 +1543,8 @@ function renderTable(){
       <td>${swatch}${u.colorCode||'<span class="emptynote">pending</span>'}</td>
       <td>${stageBadgeHtml(u)}</td>
       <td>${vqMiniHtml(u)}</td>
-      <td>${qupMiniHtml(u)}</td>
       <td>${repairMiniHtml(u)}</td>
+      <td>${qupMiniHtml(u)}</td>
       <td>${wip}</td>
     </tr>`;
   }).join('') || `<tr><td colspan="8"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
