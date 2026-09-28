@@ -128,6 +128,28 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .frow .cnt{font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:12.5px}
 @media(max-width:640px){ .frow{grid-template-columns:96px 1fr 34px} }
 
+.trendslider{margin-bottom:12px}
+.trendslider input[type=range]{width:100%;accent-color:var(--accent);cursor:pointer}
+.trendsliderlabel{font-size:11.5px;color:var(--muted);margin-top:4px;font-family:'IBM Plex Mono',monospace}
+.trendoverall{display:flex;align-items:baseline;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.trendoverall .big{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:700}
+.trendoverall .sub{font-size:12px;color:var(--muted)}
+.trendbadge{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:20px}
+.trendbadge.up{background:var(--bad-soft);color:var(--bad)}
+.trendbadge.down{background:var(--good-soft);color:var(--good)}
+.trendbadge.flat{background:var(--plan-soft);color:var(--plan)}
+
+.trendchartHead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.segtoggle{display:inline-flex;background:var(--surface-2);border-radius:20px;padding:3px}
+.segbtn{background:none;border:none;border-radius:16px;padding:5px 13px;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer}
+.segbtn.active{background:var(--accent);color:#fff}
+#trendChartWrap{width:100%;overflow-x:auto}
+#trendChart{width:100%;height:auto;min-width:480px}
+.trendlegend{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:10px;font-size:11.5px;color:var(--muted)}
+.trendlegend .li{display:inline-flex;align-items:center;gap:6px}
+.trendlegend .sw{width:10px;height:10px;border-radius:3px;flex:none}
+.trendpt{cursor:pointer}
+
 .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
 .toolbar input[type=search]{flex:1;min-width:180px;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
 .toolbar select{padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
@@ -527,6 +549,32 @@ th.sortable:hover{color:var(--ink)}
         <h2>Defects by severity</h2>
         <div class="funnel" id="defectBySeverity"></div>
       </div>
+    </div>
+
+    <div class="panel">
+      <h2>Trend across later-produced units</h2>
+      <div class="desc">Inspected units split into an early subset and a later subset by production serial no. &mdash; compares average defects/unit between the two to see whether quality is improving or worsening as the line matures. Drag the slider to change where the split falls.</div>
+      <div class="trendslider">
+        <input type="range" id="trendSplitSlider" min="1" max="99" value="50" step="1">
+        <div class="trendsliderlabel" id="trendSplitLabel"></div>
+      </div>
+      <div id="trendOverall" class="trendoverall"></div>
+      <div class="tablewrap compact">
+        <table>
+          <thead><tr><th>Breakdown</th><th>Early units (avg/unit)</th><th>Later units (avg/unit)</th><th>Change</th><th>Trend</th></tr></thead>
+          <tbody id="trendBody"></tbody>
+        </table>
+      </div>
+
+      <div class="trendchartHead">
+        <div class="desc" style="margin:14px 0 8px">Units in production order, grouped into equal-sized buckets (early &rarr; late) &mdash; each point is that bucket's average defects/unit.</div>
+        <div class="segtoggle" id="trendChartToggle">
+          <button type="button" class="segbtn active" data-mode="dept">By department</button>
+          <button type="button" class="segbtn" data-mode="severity">By severity</button>
+        </div>
+      </div>
+      <div id="trendChartWrap"><svg id="trendChart" viewBox="0 0 680 260" preserveAspectRatio="xMidYMid meet" role="img"></svg></div>
+      <div id="trendChartLegend" class="trendlegend"></div>
     </div>
 
     <div class="panel">
@@ -2158,8 +2206,12 @@ function renderActivityLog(){
       const id = btn.dataset.actlogid;
       if(!confirm('Delete this activity log entry? This cannot be undone.')) return;
       btn.disabled = true;
-      const { error } = await sb.from('activity_log').delete().eq('id', id);
+      const { data, error } = await sb.from('activity_log').delete().eq('id', id).select('id');
       if(error){ alert(`Couldn't delete: ${error.message}`); btn.disabled = false; return; }
+      if(!data || !data.length){
+        alert("Delete didn't take effect on the server (0 rows removed) — this usually means the activity_log_delete policy from supabase_schema.sql hasn't been applied yet. Re-run supabase_schema.sql in Supabase, then try again.");
+        btn.disabled = false; return;
+      }
       activityRows = activityRows.filter(r=>String(r.id)!==id);
       renderActivityLog();
     });
@@ -2170,9 +2222,14 @@ document.getElementById('activityClearAll').addEventListener('click', async ()=>
   if(!confirm('Delete ALL activity log entries? This cannot be undone.')) return;
   const btn = document.getElementById('activityClearAll');
   btn.disabled = true;
-  const { error } = await sb.from('activity_log').delete().not('id','is',null);
+  const expected = activityRows.length;
+  const { data, error } = await sb.from('activity_log').delete().not('id','is',null).select('id');
   btn.disabled = false;
   if(error){ alert(`Couldn't clear the log: ${error.message}`); return; }
+  if(expected && (!data || !data.length)){
+    alert("Delete didn't take effect on the server (0 rows removed) — this usually means the activity_log_delete policy from supabase_schema.sql hasn't been applied yet. Re-run supabase_schema.sql in Supabase, then try again.");
+    return;
+  }
   activityRows = [];
   renderActivityLog();
 });
@@ -2188,6 +2245,53 @@ document.getElementById('activityRefresh').addEventListener('click', loadActivit
 
 // ---------- defect analysis ----------
 const DEFECT_STATIONS = [...new Set(DEFECTS.map(d=>d[1]))];
+let trendChartMode = 'dept';
+let trendChartData = null;
+const TREND_PALETTE = ['#1f5fa8','#c23b3b','#c07a11','#1c8a4c','#8a4fc2','#e0679c','#6b7480'];
+let trendTableState = null;
+let trendSplitFraction = 0.5;
+function computeTrend(units, valueFn, splitFraction){
+  const n = units.length;
+  if(n < 6) return null; // too few units for a meaningful early/late split
+  const mid = Math.min(n-1, Math.max(1, Math.round(n*splitFraction)));
+  const early = units.slice(0, mid), later = units.slice(mid);
+  const earlyAvg = early.reduce((s,r)=>s+valueFn(r),0) / early.length;
+  const laterAvg = later.reduce((s,r)=>s+valueFn(r),0) / later.length;
+  const diff = laterAvg - earlyAvg;
+  const pct = earlyAvg > 0 ? (diff/earlyAvg*100) : (laterAvg>0 ? Infinity : 0);
+  let trend = 'flat';
+  if(Math.abs(pct) >= 5 || (earlyAvg===0 && laterAvg>0)) trend = diff > 0 ? 'up' : 'down';
+  return {earlyAvg, laterAvg, diff, pct, trend, earlyN:early.length, laterN:later.length};
+}
+function renderTrendTable(){
+  const trendOverallEl = document.getElementById('trendOverall');
+  const label = document.getElementById('trendSplitLabel');
+  if(!trendTableState){ trendOverallEl.innerHTML=''; document.getElementById('trendBody').innerHTML=''; label.textContent=''; return; }
+  const { orderedInspected, defectsByVin, deptLabels, severityLabels } = trendTableState;
+  const overallTrend = computeTrend(orderedInspected, r=>(defectsByVin[r.vinSuffix]||[]).length, trendSplitFraction);
+  const trendBadge = t => t ? `<span class="trendbadge ${t.trend}">${t.trend==='up'?'&#9650; Increasing':t.trend==='down'?'&#9660; Decreasing':'&#8594; Flat'}</span>` : '<span class="trendbadge flat">Not enough data</span>';
+  label.textContent = overallTrend ? `Split: ${overallTrend.earlyN} early units / ${overallTrend.laterN} later units (${Math.round(trendSplitFraction*100)}% / ${100-Math.round(trendSplitFraction*100)}%)` : '';
+  trendOverallEl.innerHTML = overallTrend
+    ? `<div class="big">${overallTrend.laterAvg.toFixed(2)}</div><div class="sub">defects/unit &mdash; later subset &nbsp;(was ${overallTrend.earlyAvg.toFixed(2)} in the early subset, ${overallTrend.earlyN}+${overallTrend.laterN} units)</div>${trendBadge(overallTrend)}`
+    : `<div class="emptynote">Need at least 6 inspected units with known production order to compute a trend.</div>`;
+  const trendRows = [];
+  if(overallTrend) trendRows.push({label:'All defects', t:overallTrend});
+  deptLabels.forEach(dl=>{
+    const t = computeTrend(orderedInspected, r=>(defectsByVin[r.vinSuffix]||[]).filter(d=>(d[4]||'Unassigned')===dl).length, trendSplitFraction);
+    if(t && (t.earlyAvg>0 || t.laterAvg>0)) trendRows.push({label:`Dept: ${dl}`, t});
+  });
+  severityLabels.forEach(sl=>{
+    const t = computeTrend(orderedInspected, r=>(defectsByVin[r.vinSuffix]||[]).filter(d=>(d[5]||'Unrated')===sl).length, trendSplitFraction);
+    if(t && (t.earlyAvg>0 || t.laterAvg>0)) trendRows.push({label:`Severity: ${sl}`, t});
+  });
+  document.getElementById('trendBody').innerHTML = trendRows.length
+    ? trendRows.map(({label,t})=>`<tr><td>${escapeHtml(label)}</td><td>${t.earlyAvg.toFixed(2)}</td><td>${t.laterAvg.toFixed(2)}</td><td>${isFinite(t.pct)?(t.pct>0?'+':'')+t.pct.toFixed(0)+'%':'&mdash;'}</td><td>${trendBadge(t)}</td></tr>`).join('')
+    : `<tr><td colspan="5"><div class="emptynote">Not enough data yet for a breakdown trend.</div></td></tr>`;
+}
+document.getElementById('trendSplitSlider').addEventListener('input', e=>{
+  trendSplitFraction = (+e.target.value) / 100;
+  renderTrendTable();
+});
 function renderAnalysis(){
   const vinsWithDefects = new Set(DEFECTS.map(d=>d[0]));
   const byVin = {};
@@ -2241,7 +2345,12 @@ function renderAnalysis(){
   });
 
   // ---- Defects by department: each bar opens that department's defects ----
-  const DEPT_LABELS_ORDER = ['Body Shop','Paint Shop','TCF','Plastic Paint Shop'];
+  // Known departments are listed in a fixed order for readability; any other
+  // department value actually present in the data (e.g. one added later,
+  // like "MC") is appended automatically instead of being silently dropped.
+  const DEPT_LABELS_KNOWN = ['Body Shop','Paint Shop','TCF','Plastic Paint Shop'];
+  const deptLabelsPresent = [...new Set(DEFECTS.map(d=>d[4]).filter(Boolean))];
+  const DEPT_LABELS_ORDER = [...DEPT_LABELS_KNOWN, ...deptLabelsPresent.filter(d=>!DEPT_LABELS_KNOWN.includes(d)).sort()];
   const deptLabels = [...DEPT_LABELS_ORDER, 'Unassigned'];
   const byDept = deptLabels.map(label=>({
     label,
@@ -2290,6 +2399,57 @@ function renderAnalysis(){
     el.addEventListener('click', open);
     el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
   });
+
+  // ---- Trend across later-produced units: split inspected units into an
+  // early subset and a later subset by production serial no. (falling back
+  // to the numeric VIN suffix if sr is missing), then compare avg
+  // defects/unit between the two — overall, per department, and per
+  // severity category — to see whether quality is trending up or down as
+  // the line matures. The split point is adjustable via the slider
+  // (trendSplitFraction, 1-99%); recomputing on drag is cheap since it's
+  // just re-slicing the already-ordered/grouped arrays below.
+  const orderedInspected = vinRows
+    .filter(r=>r.u)
+    .map(r=>({...r, order: Number(r.u.sr) || Number(r.vinSuffix) || 0}))
+    .sort((a,b)=>a.order-b.order);
+  const defectsByVin = {};
+  DEFECTS.forEach(d=>{ (defectsByVin[d[0]] = defectsByVin[d[0]] || []).push(d); });
+  trendTableState = { orderedInspected, defectsByVin, deptLabels, severityLabels };
+  renderTrendTable();
+
+  // ---- Interactive chart: same production-order data, grouped into a
+  // handful of sequential buckets (rather than an early/late split) so the
+  // shape of the trend across the whole run is visible, not just its two
+  // endpoints. Toggle switches which slice (department / severity) draws.
+  const numBuckets = Math.max(3, Math.min(8, Math.floor(orderedInspected.length/4)));
+  const buckets = [];
+  if(orderedInspected.length){
+    const size = orderedInspected.length / numBuckets;
+    for(let i=0;i<numBuckets;i++){
+      const start = Math.floor(i*size), end = Math.max(start+1, Math.floor((i+1)*size));
+      const slice = orderedInspected.slice(start, end);
+      if(slice.length) buckets.push(slice);
+    }
+  }
+  const bucketAvg = (bucket, valueFn) => bucket.length ? bucket.reduce((s,r)=>s+valueFn(r),0)/bucket.length : 0;
+  const bucketLabel = bucket => {
+    const first = bucket[0].u, last = bucket[bucket.length-1].u;
+    const a = (first.sr!=null?first.sr:first.vinSuffix), b = (last.sr!=null?last.sr:last.vinSuffix);
+    return a===b ? `#${a}` : `#${a}–${b}`;
+  };
+  function seriesFrom(labels, fieldIdx, fallback){
+    return labels.map((label,i)=>({
+      label,
+      color: TREND_PALETTE[i % TREND_PALETTE.length],
+      values: buckets.map(b=>bucketAvg(b, r=>(defectsByVin[r.vinSuffix]||[]).filter(d=>(d[fieldIdx]||fallback)===label).length)),
+    }));
+  }
+  trendChartData = buckets.length ? {
+    buckets: buckets.map(b=>({label:bucketLabel(b), n:b.length})),
+    deptSeries: seriesFrom(byDept.map(d=>d.label), 4, 'Unassigned'),
+    severitySeries: seriesFrom(bySeverity.map(d=>d.label), 5, 'Unrated'),
+  } : null;
+  renderTrendChart();
 
   // ---- Most frequent defects: each row opens every unit with that exact defect ----
   const byDesc = {};
@@ -2342,6 +2502,50 @@ function renderAnalysis(){
     });
   });
 }
+
+function renderTrendChart(){
+  const svg = document.getElementById('trendChart');
+  const legend = document.getElementById('trendChartLegend');
+  const data = trendChartData;
+  const series = data ? (trendChartMode==='dept' ? data.deptSeries : data.severitySeries).filter(s=>s.values.some(v=>v>0)) : [];
+  if(!data || !series.length){
+    svg.innerHTML = '';
+    legend.innerHTML = `<div class="emptynote">Not enough data yet for a chart.</div>`;
+    return;
+  }
+  const W=680, H=260, padL=38, padR=14, padT=14, padB=32;
+  const n = data.buckets.length;
+  const maxY = Math.max(0.5, ...series.flatMap(s=>s.values)) * 1.15;
+  const x = i => padL + (n<=1 ? (W-padL-padR)/2 : (i/(n-1))*(W-padL-padR));
+  const y = v => H-padB - (v/maxY)*(H-padT-padB);
+  const parts = [];
+  const ticks = 4;
+  for(let t=0;t<=ticks;t++){
+    const v = maxY*t/ticks, yy = y(v);
+    parts.push(`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`);
+    parts.push(`<text x="${padL-6}" y="${(yy+3).toFixed(1)}" font-size="9" text-anchor="end" fill="var(--muted)">${v.toFixed(1)}</text>`);
+  }
+  data.buckets.forEach((b,i)=>{
+    parts.push(`<text x="${x(i).toFixed(1)}" y="${H-padB+16}" font-size="9" text-anchor="middle" fill="var(--muted)">${escapeHtml(b.label)}</text>`);
+  });
+  series.forEach(s=>{
+    const pts = s.values.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+    parts.push(`<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"/>`);
+    s.values.forEach((v,i)=>{
+      parts.push(`<circle class="trendpt" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3.5" fill="${s.color}"><title>${escapeHtml(s.label)} · units ${escapeHtml(data.buckets[i].label)}: ${v.toFixed(2)} defects/unit</title></circle>`);
+    });
+  });
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.innerHTML = parts.join('');
+  legend.innerHTML = series.map(s=>`<span class="li"><span class="sw" style="background:${s.color}"></span>${escapeHtml(s.label)}</span>`).join('');
+}
+document.getElementById('trendChartToggle').addEventListener('click', e=>{
+  const btn = e.target.closest('.segbtn');
+  if(!btn) return;
+  trendChartMode = btn.dataset.mode;
+  document.querySelectorAll('#trendChartToggle .segbtn').forEach(b=>b.classList.toggle('active', b===btn));
+  renderTrendChart();
+});
 
 // ---------- production report ----------
 // Metrics as rows, dates as columns, in process order. Body/Paint/TCF Out
