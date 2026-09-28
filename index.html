@@ -153,7 +153,8 @@ tbody tr:last-child td{border-bottom:none}
 #unitsTable th:nth-child(4),#unitsTable td:nth-child(4){width:160px}
 #unitsTable th:nth-child(5),#unitsTable td:nth-child(5){width:130px}
 #unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:80px}
-#unitsTable th:nth-child(7),#unitsTable td:nth-child(7){width:110px}
+#unitsTable th:nth-child(7),#unitsTable td:nth-child(7){width:90px}
+#unitsTable th:nth-child(8),#unitsTable td:nth-child(8){width:110px}
 #unitsTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable:hover{color:var(--ink)}
@@ -175,6 +176,7 @@ th.sortable:hover{color:var(--ink)}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
 .dot.on{background:var(--good)}
 .dot-red.on{background:var(--bad)}
+.dot-blue.on{background:var(--accent)}
 
 .overlay{position:fixed;inset:0;background:var(--surface);z-index:50;opacity:0;pointer-events:none;transition:opacity .18s}
 .overlay.open{opacity:1;pointer-events:auto}
@@ -483,6 +485,7 @@ th.sortable:hover{color:var(--ink)}
             <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
             <th class="sortable" data-col="vq">Tester Line <span class="sortic" data-col="vq"></span></th>
             <th class="sortable" data-col="qup">Q-UP <span class="sortic" data-col="qup"></span></th>
+            <th class="sortable" data-col="repair">FINAL 1 REPAIR <span class="sortic" data-col="repair"></span></th>
             <th class="sortable" data-col="wip">Days in WIP <span class="sortic" data-col="wip"></span></th>
           </tr></thead>
           <tbody id="tbody"></tbody>
@@ -1479,6 +1482,8 @@ function vqTesterProgress(u){ return groupProgress(u, "tester"); }
 function vqMiniHtml(u){ return groupMiniHtml(u, "tester", "VQ tester steps", ""); }
 function qupProgress(u){ return groupProgress(u, "final"); }
 function qupMiniHtml(u){ return groupMiniHtml(u, "final", "VQ final inspection steps", "dot-red"); }
+function repairProgress(u){ return groupProgress(u, "repair"); }
+function repairMiniHtml(u){ return groupMiniHtml(u, "repair", "FINAL 1 REPAIR steps", "dot-blue"); }
 
 function renderTable(){
   // "Include BU" is a dedicated, standalone control for BU Stock units in
@@ -1511,6 +1516,7 @@ function renderTable(){
       stage: u=>stageOrder[u.statusCode],
       vq: u=>vqTesterProgress(u),
       qup: u=>qupProgress(u),
+      repair: u=>repairProgress(u),
       wip: u=>u.wipDays==null ? -1 : u.wipDays,
     }[sortCol];
     rows.sort((a,b)=>{
@@ -1537,9 +1543,10 @@ function renderTable(){
       <td>${stageBadgeHtml(u)}</td>
       <td>${vqMiniHtml(u)}</td>
       <td>${qupMiniHtml(u)}</td>
+      <td>${repairMiniHtml(u)}</td>
       <td>${wip}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="7"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
+  }).join('') || `<tr><td colspan="8"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
 }
 searchEl.addEventListener('input', renderTable);
 stageFilterEl.addEventListener('change', ()=>{
