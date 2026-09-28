@@ -266,6 +266,9 @@ th.sortable:hover{color:var(--ink)}
 .defect-row .dtxt{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
 @media(max-width:520px){ .defect-row .dmeta{display:none} }
 .issueform textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px;font-family:inherit;font-size:12.5px;resize:vertical;min-height:56px;background:var(--surface);color:var(--ink)}
+.issueedittext{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:8px;font-family:inherit;font-size:12.5px;resize:vertical;min-height:56px;background:var(--surface);color:var(--ink);margin-top:4px}
+.issueeditactions{display:flex;gap:8px;margin-top:6px}
+.issueeditactions .markbtn{padding:6px 14px}
 .issueform input[type=text]{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 8px;font-size:12.5px;margin-bottom:6px;background:var(--surface);color:var(--ink)}
 .issueform button{margin-top:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:12.5px;font-weight:600;cursor:pointer}
 .issueform button:disabled{opacity:.5;cursor:default}
@@ -1732,6 +1735,9 @@ function wireMilestoneTaps(container, vin){
   });
 }
 
+// Which issue (by its original array index) is currently being edited
+// in-place, if any — reset whenever a different unit's drawer opens.
+let editingIssueIdx = null;
 function renderIssues(items, vin){
   const list = document.getElementById('issueList');
   if(!list) return;
@@ -1740,27 +1746,64 @@ function renderIssues(items, vin){
     return;
   }
   const isAdmin = currentRole === 'admin';
+  const myEmail = currentSession && currentSession.user.email;
+  const canManage = it => isAdmin || (myEmail && it.author === myEmail);
   // Keep each item's original index (before the reverse, which is just for
-  // newest-first display) so a delete click removes the right one.
+  // newest-first display) so edit/delete act on the right one.
   list.innerHTML = items.map((it,i)=>({it,i})).slice().reverse().map(({it,i})=>{
     const d = it.ts ? new Date(it.ts).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+    const editedTag = it.editedTs ? ' <span class="emptynote">(edited)</span>' : '';
     const photoHtml = it.photoUrl ? `<a href="${escapeHtml(it.photoUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(it.photoUrl)}" class="issuephoto" alt="Attached photo"></a>` : '';
-    return `<div class="issue"><div class="meta">Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${isAdmin?`<button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>`:''}</div>${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}${photoHtml}</div>`;
+    const actions = canManage(it) ? `<button type="button" class="clearbtn" data-editidx="${i}" title="Edit this issue">&#9998;</button><button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>` : '';
+    if(editingIssueIdx === i){
+      return `<div class="issue">
+        <div class="meta">Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}</div>
+        <textarea class="issueedittext" data-editingfor="${i}">${escapeHtml(it.text||'')}</textarea>
+        ${it.photoUrl ? `<label class="emptynote"><input type="checkbox" data-removephoto="${i}"> Remove attached photo</label>` : ''}
+        <div class="issueeditactions">
+          <button type="button" class="markbtn" data-saveidx="${i}">Save</button>
+          <button type="button" class="clearbtn" data-canceledit="${i}">Cancel</button>
+        </div>
+      </div>`;
+    }
+    return `<div class="issue"><div class="meta">Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}${actions}</div>${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}${photoHtml}</div>`;
   }).join('');
-  if(isAdmin && vin){
-    list.querySelectorAll('[data-delidx]').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
-        if(!confirm('Delete this issue? This cannot be undone.')) return;
-        const idx = +btn.dataset.delidx;
-        const newItems = ((currentRowData && currentRowData.issues) || []).slice();
-        newItems.splice(idx, 1);
-        btn.disabled = true;
-        const ok = await upsertUnitRow(vin, { issues: newItems });
-        if(ok){ currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin); }
-        else btn.disabled = false;
-      });
+
+  list.querySelectorAll('[data-editidx]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ editingIssueIdx = +btn.dataset.editidx; renderIssues(items, vin); });
+  });
+  list.querySelectorAll('[data-canceledit]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ editingIssueIdx = null; renderIssues(items, vin); });
+  });
+  list.querySelectorAll('[data-saveidx]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const idx = +btn.dataset.saveidx;
+      const textarea = list.querySelector(`textarea[data-editingfor="${idx}"]`);
+      const removePhoto = list.querySelector(`[data-removephoto="${idx}"]`);
+      const newText = textarea.value.trim();
+      const newItems = ((currentRowData && currentRowData.issues) || []).slice();
+      const existing = newItems[idx];
+      if(!newText && !(existing.photoUrl && !(removePhoto && removePhoto.checked))) return; // would leave it empty
+      newItems[idx] = { ...existing, text: newText, editedTs: Date.now() };
+      if(removePhoto && removePhoto.checked) newItems[idx].photoUrl = null;
+      btn.disabled = true;
+      const ok = await upsertUnitRow(vin, { issues: newItems });
+      if(ok){ editingIssueIdx = null; currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin); }
+      else btn.disabled = false;
     });
-  }
+  });
+  list.querySelectorAll('[data-delidx]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Delete this issue? This cannot be undone.')) return;
+      const idx = +btn.dataset.delidx;
+      const newItems = ((currentRowData && currentRowData.issues) || []).slice();
+      newItems.splice(idx, 1);
+      btn.disabled = true;
+      const ok = await upsertUnitRow(vin, { issues: newItems });
+      if(ok){ currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin); }
+      else btn.disabled = false;
+    });
+  });
 }
 
 function renderDrawerRow(row){
@@ -1800,6 +1843,7 @@ function openDrawer(vin, sr){
   const u = ALL_UNITS.find(x=>x.sr===sr);
   if(!u) return;
   currentDrawerUnit = u;
+  editingIssueIdx = null; // don't carry a stale in-progress edit over from a different VIN
   const isPlan = !u.vin;
   const checklistOn = reachedInspection(u);
   const remark = u.vinSuffix ? REMARKS[u.vinSuffix] : null;
