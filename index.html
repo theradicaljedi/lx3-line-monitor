@@ -271,8 +271,8 @@ th.sortable:hover{color:var(--ink)}
 
 .issuelist{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
 .issue{background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 8px 8px 0;padding:8px 10px}
-.issue.issue-resolved{border-left-color:var(--good);opacity:.65}
-.issue.issue-resolved .txt{text-decoration:line-through;text-decoration-color:var(--muted)}
+.issue.tappable{cursor:pointer}
+.issue.issue-resolved{background:var(--good-soft);border-left-color:var(--good)}
 .issue .meta{font-size:10.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:3px}
 .issue .txt{font-size:13px}
 
@@ -1865,9 +1865,9 @@ function renderIssues(items, vin){
     const d = it.ts ? new Date(it.ts).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
     const editedTag = it.editedTs ? ' <span class="emptynote">(edited)</span>' : '';
     const photoHtml = it.photoUrl ? `<a href="${escapeHtml(it.photoUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(it.photoUrl)}" class="issuephoto" alt="Attached photo"></a>` : '';
-    const resolveBtn = canManage(it) ? `<button type="button" class="clearbtn" data-resolveidx="${i}" title="${it.resolved?'Reopen this issue':'Mark this issue resolved'}">${it.resolved?'&#8630;':'&#10003;'}</button>` : '';
-    const actions = canManage(it) ? `${resolveBtn}<button type="button" class="clearbtn" data-editidx="${i}" title="Edit this issue">&#9998;</button><button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>` : '';
-    const resolvedBadge = it.resolved ? `<span class="rolebadge" style="background:var(--good-soft);color:var(--good)">Resolved</span> ` : '';
+    const manageable = canManage(it);
+    const actions = manageable ? `<button type="button" class="clearbtn" data-editidx="${i}" title="Edit this issue">&#9998;</button><button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>` : '';
+    const resolvedBadge = it.resolved ? `<span class="rolebadge" style="background:var(--good-soft);color:var(--good)">&#10003; Resolved</span> ` : '';
     if(editingIssueIdx === i){
       return `<div class="issue">
         <div class="meta">Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}</div>
@@ -1879,7 +1879,7 @@ function renderIssues(items, vin){
         </div>
       </div>`;
     }
-    return `<div class="issue ${it.resolved?'issue-resolved':''}"><div class="meta">${resolvedBadge}Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}${actions}</div>${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}${photoHtml}</div>`;
+    return `<div class="issue ${it.resolved?'issue-resolved':''} ${manageable?'tappable':''}" ${manageable?`data-resolveidx="${i}" title="Tap to ${it.resolved?'reopen':'mark resolved'}"`:''}><div class="meta">${resolvedBadge}Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}${actions}</div>${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}${photoHtml}</div>`;
   }).join('');
 
   list.querySelectorAll('[data-editidx]').forEach(btn=>{
@@ -1908,22 +1908,23 @@ function renderIssues(items, vin){
       else btn.disabled = false;
     });
   });
-  list.querySelectorAll('[data-resolveidx]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const idx = +btn.dataset.resolveidx;
+  list.querySelectorAll('[data-resolveidx]').forEach(card=>{
+    card.addEventListener('click', async e=>{
+      if(e.target.closest('[data-editidx],[data-delidx],a,img')) return; // let those handle their own click
+      const idx = +card.dataset.resolveidx;
       const newItems = ((currentRowData && currentRowData.issues) || []).slice();
       const existing = newItems[idx];
       const nowResolved = !existing.resolved;
       newItems[idx] = nowResolved
         ? { ...existing, resolved: true, resolvedBy: (currentSession && currentSession.user.email) || 'Unknown', resolvedTs: Date.now() }
         : { ...existing, resolved: false, resolvedBy: null, resolvedTs: null };
-      btn.disabled = true;
+      card.style.pointerEvents = 'none';
       const ok = await upsertUnitRow(vin, { issues: newItems });
       if(ok){
         currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin);
         logActivity(nowResolved ? 'issue_resolve' : 'issue_reopen', (existing.text||'').slice(0,120), vin);
       }
-      else btn.disabled = false;
+      else card.style.pointerEvents = '';
     });
   });
   list.querySelectorAll('[data-delidx]').forEach(btn=>{
