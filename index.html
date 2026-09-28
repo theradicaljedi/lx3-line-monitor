@@ -2735,6 +2735,26 @@ async function initData(){
 // (or "Save as PDF") cleanly with no extra work. Photos are referenced by
 // their Supabase Storage public URL, so the browser fetches them directly
 // when the report tab renders/prints.
+// Re-renders a hosted photo down to a small, low-res JPEG data URL for
+// embedding in the report — browsers embed an <img>'s FULL source bytes
+// into a printed PDF regardless of its on-screen CSS size, so linking
+// straight to the original (up to ~500KB each, and much larger for any
+// photo uploaded before compression was added) is what was blowing the
+// PDF up to hundreds of MB with more than a handful of photos.
+async function reportThumbnailDataUrl(url, maxW, maxH, quality){
+  try{
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    const bitmap = await createImageBitmap(blob);
+    const scale = Math.min(1, maxW/bitmap.width, maxH/bitmap.height);
+    const w = Math.max(1, Math.round(bitmap.width*scale)), h = Math.max(1, Math.round(bitmap.height*scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    bitmap.close && bitmap.close();
+    return canvas.toDataURL('image/jpeg', quality);
+  } catch(e){ return null; } // fall back to omitting the photo rather than failing the whole report
+}
 async function generateDailyReport(){
   const btn = document.getElementById('dailyReportBtn');
   if(!sb){ alert('Supabase not configured — nothing to report on.'); return; }
@@ -2752,6 +2772,9 @@ async function generateDailyReport(){
     issues.sort((a,b)=>b.ts-a.ts);
     const defects = DEFECTS.filter(d=>d[6] && new Date(d[6]).getTime() >= cutoffMs)
       .slice().sort((a,b)=>new Date(b[6])-new Date(a[6]));
+    await Promise.all(issues.map(async it=>{
+      if(it.photoUrl) it.thumbDataUrl = await reportThumbnailDataUrl(it.photoUrl, 240, 180, 0.55);
+    }));
     openDailyReportWindow(issues, defects, cutoffMs);
   } catch(err){
     alert(`Couldn't generate the report: ${err.message}`);
@@ -2768,7 +2791,7 @@ function openDailyReportWindow(issues, defects, cutoffMs){
       <td>${escapeHtml(it.author||'Unknown')}</td>
       <td>${fmt(it.ts)}</td>
       <td>${it.resolved ? `<span class="status ok">Resolved</span>` : `<span class="status open">Open</span>`}</td>
-      <td>${it.photoUrl ? `<img src="${escapeHtml(it.photoUrl)}" class="thumb">` : '&mdash;'}</td>
+      <td>${it.thumbDataUrl ? `<img src="${it.thumbDataUrl}" class="thumb">` : (it.photoUrl ? 'Photo unavailable' : '&mdash;')}</td>
     </tr>`).join('');
   const defectRows = defects.map(d=>`<tr>
       <td>${escapeHtml((d[0]||'').slice(-6))}</td>
