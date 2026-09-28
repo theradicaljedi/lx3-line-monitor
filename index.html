@@ -327,6 +327,7 @@ th.sortable:hover{color:var(--ink)}
     </div>
     <div class="hdr-actions">
       <button type="button" class="iconbtn" id="scopeBtn" title="Choose which stages count as in-scope" hidden>Scope</button>
+      <button type="button" class="iconbtn" id="dailyReportBtn" title="Generate a PDF report of issues and defects from the last 24 hours" hidden>Daily report</button>
       <button type="button" class="iconbtn" id="uploadBtn" title="Upload production/defect data" hidden>Upload</button>
       <button type="button" class="iconbtn" id="usersBtn" title="Manage user accounts and roles" hidden>Users</button>
       <div id="authArea"></div>
@@ -681,6 +682,7 @@ const signinError = document.getElementById('signinError');
 
 function renderAuthArea(){
   const scopeBtnEl = document.getElementById('scopeBtn');
+  const dailyReportBtnEl = document.getElementById('dailyReportBtn');
   const uploadBtnEl = document.getElementById('uploadBtn');
   const usersBtnEl = document.getElementById('usersBtn');
   const clearDefectsBtnEl = document.getElementById('clearDefectsBtn');
@@ -690,6 +692,7 @@ function renderAuthArea(){
   if(!sb){
     authAreaEl.innerHTML = '';
     if(scopeBtnEl) scopeBtnEl.hidden = false; // no Supabase configured — nothing to gate behind, so no sign-in page either
+    if(dailyReportBtnEl) dailyReportBtnEl.hidden = false;
     if(uploadBtnEl) uploadBtnEl.hidden = true;
     if(usersBtnEl) usersBtnEl.hidden = true;
     if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = true;
@@ -704,6 +707,7 @@ function renderAuthArea(){
     document.getElementById('changePasswordBtn').addEventListener('click', openNewPasswordModal);
     setConnStatus(true, 'Live (Supabase) — signed in');
     if(scopeBtnEl) scopeBtnEl.hidden = false;
+    if(dailyReportBtnEl) dailyReportBtnEl.hidden = currentRole !== 'admin';
     if(uploadBtnEl) uploadBtnEl.hidden = !canWriteNow();
     if(usersBtnEl) usersBtnEl.hidden = currentRole !== 'admin';
     if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = currentRole !== 'admin';
@@ -715,6 +719,7 @@ function renderAuthArea(){
     document.getElementById('signInBtn').addEventListener('click', openSignin);
     setConnStatus(true, 'Live (Supabase) — signed out');
     if(scopeBtnEl) scopeBtnEl.hidden = true;
+    if(dailyReportBtnEl) dailyReportBtnEl.hidden = true;
     if(uploadBtnEl) uploadBtnEl.hidden = true;
     if(usersBtnEl) usersBtnEl.hidden = true;
     if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = true;
@@ -2709,11 +2714,11 @@ async function initData(){
     // different upload sources, so every existing defect view (station
     // bars, frequent defects, per-VIN counts) should reflect both.
     if(defRows){
-      DEFECTS.push(...defRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, null]));
+      DEFECTS.push(...defRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, null, r.updated_at||null]));
       new Set(defRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
     }
     if(manualRows){
-      DEFECTS.push(...manualRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, r.severity||null]));
+      DEFECTS.push(...manualRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, r.severity||null, r.updated_at||null]));
       new Set(manualRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
     }
   }
@@ -2722,6 +2727,93 @@ async function initData(){
   if(!tabReportEl.hidden){ loadReport(); }
   if(!tabAnalysisEl.hidden) renderAnalysis();
 }
+
+// ---------- daily PDF report (issues + defects from the last 24h) ----------
+// Built as a standalone HTML document opened in a new tab, rather than an
+// in-page @media print stylesheet — the main dashboard has far too much
+// layout/CSS for a clean print pass, whereas a purpose-built document prints
+// (or "Save as PDF") cleanly with no extra work. Photos are referenced by
+// their Supabase Storage public URL, so the browser fetches them directly
+// when the report tab renders/prints.
+async function generateDailyReport(){
+  const btn = document.getElementById('dailyReportBtn');
+  if(!sb){ alert('Supabase not configured — nothing to report on.'); return; }
+  if(btn) btn.disabled = true;
+  try{
+    const cutoffMs = Date.now() - 24*60*60*1000;
+    const { data, error } = await sb.from('units_data').select('vin,issues');
+    if(error) throw error;
+    const issues = [];
+    (data||[]).forEach(row=>{
+      (row.issues||[]).forEach(it=>{
+        if(it.ts && it.ts >= cutoffMs) issues.push({...it, vin: row.vin});
+      });
+    });
+    issues.sort((a,b)=>b.ts-a.ts);
+    const defects = DEFECTS.filter(d=>d[6] && new Date(d[6]).getTime() >= cutoffMs)
+      .slice().sort((a,b)=>new Date(b[6])-new Date(a[6]));
+    openDailyReportWindow(issues, defects, cutoffMs);
+  } catch(err){
+    alert(`Couldn't generate the report: ${err.message}`);
+  } finally {
+    if(btn) btn.disabled = false;
+  }
+}
+function openDailyReportWindow(issues, defects, cutoffMs){
+  const now = new Date();
+  const fmt = ts => ts ? new Date(ts).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '&mdash;';
+  const issueRows = issues.map(it=>`<tr>
+      <td>${escapeHtml((it.vin||'').slice(-6))}</td>
+      <td>${escapeHtml(it.text||'')}</td>
+      <td>${escapeHtml(it.author||'Unknown')}</td>
+      <td>${fmt(it.ts)}</td>
+      <td>${it.resolved ? `<span class="status ok">Resolved</span>` : `<span class="status open">Open</span>`}</td>
+      <td>${it.photoUrl ? `<img src="${escapeHtml(it.photoUrl)}" class="thumb">` : '&mdash;'}</td>
+    </tr>`).join('');
+  const defectRows = defects.map(d=>`<tr>
+      <td>${escapeHtml((d[0]||'').slice(-6))}</td>
+      <td>${escapeHtml(d[1]||'')}</td>
+      <td>${escapeHtml(d[2]||'')}</td>
+      <td>${escapeHtml(d[4]||'Unassigned')}</td>
+      <td>${escapeHtml(d[5]||'Unrated')}</td>
+      <td>${fmt(d[6])}</td>
+    </tr>`).join('');
+  const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>LX3 Line Monitor — Daily Report — ${now.toLocaleDateString('en-GB')}</title>
+<style>
+  body{font-family:'IBM Plex Sans',Arial,sans-serif;color:#1a1f24;margin:32px;font-size:13px}
+  h1{font-size:20px;margin:0 0 2px}
+  .sub{color:#5a6470;font-size:12px;margin-bottom:22px}
+  h2{font-size:15px;margin:26px 0 8px;border-bottom:1px solid #d8dee4;padding-bottom:4px}
+  table{width:100%;border-collapse:collapse;margin-bottom:6px}
+  th,td{border:1px solid #d8dee4;padding:5px 7px;text-align:left;font-size:11.5px;vertical-align:top}
+  th{background:#f1f3f5;font-weight:600}
+  .thumb{max-width:90px;max-height:70px;border-radius:4px;object-fit:cover;display:block}
+  .status{font-weight:600;padding:2px 7px;border-radius:10px;font-size:10.5px}
+  .status.ok{background:#e2f5e9;color:#1c8a4c}
+  .status.open{background:#fbe6e6;color:#c23b3b}
+  .empty{color:#8a94a0;font-style:italic;padding:8px 0}
+  .printbar{margin-bottom:20px}
+  .printbar button{font-size:13px;padding:8px 16px;border-radius:20px;border:none;background:#1f5fa8;color:#fff;cursor:pointer}
+  @media print{ .printbar{display:none} }
+</style>
+</head><body>
+  <div class="printbar"><button onclick="window.print()">Print / Save as PDF</button></div>
+  <h1>LX3 Palisade HEV — Daily Production Report</h1>
+  <div class="sub">Generated ${now.toLocaleString('en-GB')} &mdash; covers issues and defects logged in the last 24 hours (since ${fmt(cutoffMs)})</div>
+
+  <h2>Issues logged (${issues.length})</h2>
+  ${issues.length ? `<table><thead><tr><th>VIN</th><th>Description</th><th>Logged by</th><th>Logged at</th><th>Status</th><th>Photo</th></tr></thead><tbody>${issueRows}</tbody></table>` : `<div class="empty">No issues logged in the last 24 hours.</div>`}
+
+  <h2>Defects recorded (${defects.length})</h2>
+  ${defects.length ? `<table><thead><tr><th>VIN</th><th>Station</th><th>Description</th><th>Department</th><th>Severity</th><th>Recorded at</th></tr></thead><tbody>${defectRows}</tbody></table>` : `<div class="empty">No defects recorded in the last 24 hours.</div>`}
+</body></html>`;
+  const win = window.open('', '_blank');
+  if(!win){ alert('Please allow pop-ups to view the report.'); return; }
+  win.document.write(html);
+  win.document.close();
+}
+document.getElementById('dailyReportBtn').addEventListener('click', generateDailyReport);
 
 // Reads a workbook's first sheet as an array of arrays (row 0 = the file's
 // title row, row 1 = headers, row 2+ = data) — same shape either source
