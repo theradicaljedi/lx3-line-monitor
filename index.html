@@ -252,6 +252,7 @@ th.sortable:hover{color:var(--ink)}
 .cgroup-count{font-family:'IBM Plex Mono',monospace;color:var(--accent);letter-spacing:0}
 .citem{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:5px 10px 5px 7px;border-radius:20px;background:var(--surface-2);white-space:nowrap}
 .citem .n{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);flex:none}
+.citem-count{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:700;color:var(--warn);background:var(--warn-soft);border-radius:10px;padding:1px 6px;flex:none}
 /* 6 across (2 rows of 6 for the 12 tester steps) instead of forcing all 12
    into one row — 12*72px+gaps needed ~920px, wider than the drawer's own
    compact column, so it overflowed past the rest of the card's width. */
@@ -1719,20 +1720,25 @@ function closeDrawer(){
 overlay.addEventListener('click', e=>{ if(e.target===overlay) closeDrawer(); });
 
 // Renders the tap-to-complete checklist and wires each item's click handler.
-function renderChecklistBody(state, canWrite){
+function renderChecklistBody(state, canWrite, counts){
+  counts = counts || {};
   const groupsHtml = CHECKLIST_GROUPS.map(g=>{
     const items = CHECKLIST_ITEMS.filter(it=>it.group===g.key);
     const isTester = g.key==="tester";
-    const itemsHtml = items.map((it,i)=>
-      `<div class="citem ${isTester?'tile':''} ${state[it.key]?'on':''} ${canWrite?'tappable':''}" data-key="${it.key}"><span class="n">${i+1}</span><span class="d"></span><span class="lbl">${it.label}</span></div>`
-    ).join('');
+    const itemsHtml = items.map((it,i)=>{
+      // A step re-marked complete after being un-ticked (e.g. failed a
+      // re-check and was re-inspected) shows how many times that's happened.
+      const repeatBadge = counts[it.key] > 1 ? `<span class="citem-count">&times;${counts[it.key]}</span>` : '';
+      return `<div class="citem ${isTester?'tile':''} ${state[it.key]?'on':''} ${canWrite?'tappable':''}" data-key="${it.key}"><span class="n">${i+1}</span><span class="d"></span><span class="lbl">${it.label}</span>${repeatBadge}</div>`;
+    }).join('');
     const doneCount = items.filter(it=>state[it.key]).length;
     return `<div class="cgroup">${g.label} <span class="cgroup-count">${doneCount}/${items.length}</span></div><div class="checklist ${isTester?'checklist-line':''}">${itemsHtml}</div>`;
   }).join('');
   return groupsHtml;
 }
-function wireChecklistTaps(container, state, dates, vin){
+function wireChecklistTaps(container, state, dates, vin, counts){
   if(!canWriteNow()) return;
+  counts = counts || {};
   container.querySelectorAll('.citem.tappable').forEach(el=>{
     el.addEventListener('click', async ()=>{
       const key = el.dataset.key;
@@ -1760,9 +1766,14 @@ function wireChecklistTaps(container, state, dates, vin){
         newState[k] = turningOn;
         if(turningOn) newDates[k] = logEntry;
       });
+      // Only the step actually tapped (not the tester-line cascade) counts
+      // toward "how many times this was marked on" — an off->on transition
+      // on that one step.
+      const newCounts = {...counts};
+      if(turningOn) newCounts[key] = (newCounts[key]||0) + 1;
       const touchedEls = affectedKeys.map(k=>container.querySelector(`[data-key="${k}"]`)).filter(Boolean);
       touchedEls.forEach(el2=>el2.classList.toggle('on', turningOn));
-      const ok = await upsertUnitRow(vin, { checklist_items: newState, checklist_dates: newDates });
+      const ok = await upsertUnitRow(vin, { checklist_items: newState, checklist_dates: newDates, checklist_counts: newCounts });
       if(!ok) touchedEls.forEach(el2=>el2.classList.toggle('on', !turningOn));
       else logActivity('checklist_tap', `${item ? item.label : key} marked ${turningOn ? 'complete' : 'incomplete'}`, vin);
     });
@@ -1988,9 +1999,10 @@ function renderDrawerRow(row){
     const seed = seedChecklist(u.vinSuffix);
     const state = (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
     const dates = (row && row.checklist_dates) || {};
+    const counts = (row && row.checklist_counts) || {};
     if(checklistEl){
-      checklistEl.innerHTML = renderChecklistBody(state, canWrite);
-      if(u.vin) wireChecklistTaps(checklistEl, state, dates, u.vin);
+      checklistEl.innerHTML = renderChecklistBody(state, canWrite, counts);
+      if(u.vin) wireChecklistTaps(checklistEl, state, dates, u.vin, counts);
     }
   }
 
