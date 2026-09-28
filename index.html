@@ -525,7 +525,7 @@ th.sortable:hover{color:var(--ink)}
       <div class="desc">Grouped by defect wording &mdash; same defect reported on different units counts as separate occurrences</div>
       <div class="tablewrap compact">
         <table>
-          <thead><tr><th>Defect</th><th>Station</th><th>Occurrences</th></tr></thead>
+          <thead id="topDefectsHead"></thead>
           <tbody id="topDefectsBody"></tbody>
         </table>
       </div>
@@ -2061,12 +2061,19 @@ function renderAnalysis(){
     byDesc[key].byDept[dept] = (byDesc[key].byDept[dept] || 0) + 1;
   });
   const topDefects = Object.values(byDesc).sort((a,b)=>b.count-a.count).slice(0,15);
+  // Department columns, in a fixed order — only the ones actually present
+  // among these top 15 defects, so an unused department doesn't add a
+  // permanently-empty column.
+  const deptCols = [...DEPT_LABELS_ORDER, 'Unassigned'].filter(dept=>
+    topDefects.some(t=>t.byDept[dept])
+  );
+  const topDefectsHead = document.getElementById('topDefectsHead');
+  topDefectsHead.innerHTML = `<tr><th>Defect</th><th>Station</th>${deptCols.map(d=>`<th>${escapeHtml(d)}</th>`).join('')}<th>Occurrences</th></tr>`;
   const topDefectsBody = document.getElementById('topDefectsBody');
   topDefectsBody.innerHTML = topDefects.map((t,i)=>{
-    const deptBreakup = Object.entries(t.byDept).sort((a,b)=>b[1]-a[1])
-      .map(([dept,n])=>`${escapeHtml(dept)} ${n}`).join(', ');
-    return `<tr class="detail-row" data-i="${i}"><td>${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td><td>${t.count}<div class="emptynote">${deptBreakup}</div></td></tr>`;
-  }).join('') || `<tr><td colspan="3"><div class="emptynote">No defects recorded.</div></td></tr>`;
+    const deptCells = deptCols.map(d=>`<td>${t.byDept[d]||''}</td>`).join('');
+    return `<tr class="detail-row" data-i="${i}"><td>${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td>${deptCells}<td>${t.count}</td></tr>`;
+  }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">No defects recorded.</div></td></tr>`;
   topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
     const t = topDefects[+tr.dataset.i];
     tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows));
