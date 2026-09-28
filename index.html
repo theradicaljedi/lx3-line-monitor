@@ -514,7 +514,7 @@ th.sortable:hover{color:var(--ink)}
             <th class="sortable" data-col="color">Color <span class="sortic" data-col="color"></span></th>
             <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
             <th class="sortable" data-col="vq">Tester Line <span class="sortic" data-col="vq"></span></th>
-            <th class="sortable" data-col="repair">FINAL 1 REPAIR <span class="sortic" data-col="repair"></span></th>
+            <th class="sortable" data-col="repair">Line 1 / Line 2 Repair <span class="sortic" data-col="repair"></span></th>
             <th class="sortable" data-col="qup">Q-UP <span class="sortic" data-col="qup"></span></th>
             <th class="sortable" data-col="wip">Days in WIP <span class="sortic" data-col="wip"></span></th>
           </tr></thead>
@@ -1246,6 +1246,7 @@ const CHECKLIST_ITEMS = [
   {key:"tcf", label:"TCF", group:"repair"},
   {key:"bs", label:"BS (body side)", group:"repair"},
   {key:"ps", label:"PS (paint side)", group:"repair"},
+  {key:"readyFinal1", label:"Ready for Final 1", group:"repair"},
   {key:"insp", label:"Inspection", group:"final"},
   {key:"repair", label:"Repair", group:"final"},
   {key:"finalConfirm", label:"Final Confirmation", group:"final"},
@@ -1254,7 +1255,7 @@ const CHECKLIST_ITEMS = [
 ];
 const CHECKLIST_GROUPS = [
   {key:"tester", label:"VQ tester line process"},
-  {key:"repair", label:"FINAL 1 REPAIR"},
+  {key:"repair", label:"Line 1 / Line 2 Repair"},
   {key:"final", label:"VQ final inspection status"},
 ];
 
@@ -1268,12 +1269,12 @@ function seedChecklist(vinSuffix){
     state.sideSlip = true; state.brake = true; state.interior = true; state.underbody = true;
     state.engineRoom = true; state.adas = true; state.exterior = true; state.dynamic = true; }
   else { state.lineIn = true; } // every unit that reached the line at least cleared Line IN
-  if(repair){ state.tcf = true; state.bs = true; state.ps = true; }
+  if(repair){ state.tcf = true; state.bs = true; state.ps = true; state.readyFinal1 = true; }
   if(final){ Object.assign(state, final); }
   return state;
 }
 // A unit's sub-stage tracker only starts once it's reached Inspection In.
-function reachedInspection(u){ return ["4000","4010","USTK"].includes(u.statusCode); }
+function reachedInspection(u){ return ["4000","4010","USTK","SOLD"].includes(u.statusCode); }
 
 // All Excel Status Text stages in process order. The checkboxes above let the
 // viewer choose which of these count as "in monitoring" (funnel/roster/VQ panels);
@@ -1548,13 +1549,15 @@ function checklistStateFor(u){
   const row = u.vin ? UNIT_ROWS_CACHE[u.vin] : null;
   const seed = seedChecklist(u.vinSuffix);
   const state = (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
-  // Once a unit has cleared Inspection In (status past 4000), every tester-line
-  // step is inherently done — show all dots filled regardless of any gaps in
-  // the recorded per-step flags (e.g. historical bulk-import data).
-  if(["4010","USTK"].includes(u.statusCode)){
-    const testerKeys = CHECKLIST_ITEMS.filter(it=>it.group==="tester").map(it=>it.key);
+  // Once a unit has cleared Inspection In (QC OK/Inspection out, BU Stock,
+  // or Sold), every sub-stage across all three progress bars — tester line,
+  // Line 1/2 Repair, and VQ final inspection — is inherently done, so show
+  // every dot filled regardless of any gaps in the recorded per-step flags
+  // (e.g. historical bulk-import data, or steps that were never tapped
+  // individually before the unit moved on).
+  if(["4010","USTK","SOLD"].includes(u.statusCode)){
     const merged = {...state};
-    testerKeys.forEach(k=>{ merged[k] = true; });
+    CHECKLIST_ITEMS.forEach(it=>{ merged[it.key] = true; });
     return merged;
   }
   return state;
@@ -1580,7 +1583,7 @@ function vqMiniHtml(u){ return groupMiniHtml(u, "tester", "VQ tester steps", "")
 function qupProgress(u){ return groupProgress(u, "final"); }
 function qupMiniHtml(u){ return groupMiniHtml(u, "final", "VQ final inspection steps", "dot-red"); }
 function repairProgress(u){ return groupProgress(u, "repair"); }
-function repairMiniHtml(u){ return groupMiniHtml(u, "repair", "FINAL 1 REPAIR steps", "dot-blue"); }
+function repairMiniHtml(u){ return groupMiniHtml(u, "repair", "Line 1 / Line 2 Repair steps", "dot-blue"); }
 
 function renderTable(){
   // "Include BU" is a dedicated, standalone control for BU Stock units in
