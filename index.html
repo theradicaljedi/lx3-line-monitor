@@ -271,7 +271,7 @@ th.sortable:hover{color:var(--ink)}
 
 .issuelist{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
 .issue{background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 8px 8px 0;padding:8px 10px}
-.issue.tappable{cursor:pointer}
+.issuebody.tappable{cursor:pointer}
 .issue.issue-resolved{background:var(--good-soft);border-left-color:var(--good)}
 .issue .meta{font-size:10.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:3px}
 .issue .txt{font-size:13px}
@@ -1879,7 +1879,18 @@ function renderIssues(items, vin){
         </div>
       </div>`;
     }
-    return `<div class="issue ${it.resolved?'issue-resolved':''} ${manageable?'tappable':''}" ${manageable?`data-resolveidx="${i}" title="Tap to ${it.resolved?'reopen':'mark resolved'}"`:''}><div class="meta">${resolvedBadge}Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}${actions}</div>${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}${photoHtml}</div>`;
+    // The photo (if any) is a sibling OUTSIDE the tappable resolve area, not
+    // nested inside it — so a tap on the card body can never land on the
+    // photo's link, and vice versa, regardless of layout shifts from the
+    // resolved badge appearing/disappearing.
+    const tapAttrs = manageable ? `data-resolveidx="${i}" title="Tap to ${it.resolved?'reopen':'mark resolved'}"` : '';
+    return `<div class="issue ${it.resolved?'issue-resolved':''}">
+      <div class="issuebody ${manageable?'tappable':''}" ${tapAttrs}>
+        <div class="meta">${resolvedBadge}Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}${actions}</div>
+        ${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}
+      </div>
+      ${photoHtml}
+    </div>`;
   }).join('');
 
   list.querySelectorAll('[data-editidx]').forEach(btn=>{
@@ -1910,7 +1921,7 @@ function renderIssues(items, vin){
   });
   list.querySelectorAll('[data-resolveidx]').forEach(card=>{
     card.addEventListener('click', async e=>{
-      if(e.target.closest('[data-editidx],[data-delidx],a,img')) return; // let those handle their own click
+      if(e.target.closest('[data-editidx],[data-delidx]')) return; // let those handle their own click
       const idx = +card.dataset.resolveidx;
       const newItems = ((currentRowData && currentRowData.issues) || []).slice();
       const existing = newItems[idx];
