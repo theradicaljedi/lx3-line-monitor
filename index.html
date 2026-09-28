@@ -466,6 +466,7 @@ th.sortable:hover{color:var(--ink)}
     <button type="button" class="tabbtn active" data-tab="roster">Units</button>
     <button type="button" class="tabbtn" data-tab="report">Production Report</button>
     <button type="button" class="tabbtn" data-tab="analysis">Defect Analysis</button>
+    <button type="button" class="tabbtn" data-tab="activity">Activity Log</button>
   </div>
 
   <div id="tabRoster">
@@ -543,6 +544,28 @@ th.sortable:hover{color:var(--ink)}
         <table>
           <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr></thead>
           <tbody id="defectsByVinBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="tabActivity" hidden>
+    <div class="panel">
+      <h2>Activity log <button type="button" class="collapsebtn" id="activityRefresh" title="Refresh">&#8635;</button></h2>
+      <div class="desc">Data uploads, VIN card changes, issues, and account/role changes — most recent first.</div>
+      <div class="toolbar">
+        <input type="search" id="activitySearch" placeholder="Search user, action, VIN&hellip;">
+        <span class="count" id="activityCount"></span>
+      </div>
+      <div class="tablewrap">
+        <table id="activityTable">
+          <thead><tr>
+            <th class="sortable" data-col="time">Time <span class="sortic" data-col="time"></span></th>
+            <th class="sortable" data-col="user">User <span class="sortic" data-col="user"></span></th>
+            <th class="sortable" data-col="action">Action <span class="sortic" data-col="action"></span></th>
+            <th class="sortable" data-col="detail">Detail <span class="sortic" data-col="detail"></span></th>
+          </tr></thead>
+          <tbody id="activityBody"><tr><td colspan="4"><div class="emptynote">Loading&hellip;</div></td></tr></tbody>
         </table>
       </div>
     </div>
@@ -850,7 +873,7 @@ async function loadUsersModal(){
   if(error){ usersError.textContent = error.message; usersError.hidden = false; body.innerHTML = ''; return; }
   body.innerHTML = data.map(r=>`<tr data-uid="${r.user_id}">
     <td>${r.email||''}</td>
-    <td><select class="roleselect" data-uid="${r.user_id}">
+    <td><select class="roleselect" data-uid="${r.user_id}" data-email="${escapeHtml(r.email||'')}">
       ${['admin','editor','viewer'].map(role=>`<option value="${role}" ${r.role===role?'selected':''}>${role[0].toUpperCase()+role.slice(1)}</option>`).join('')}
     </select></td>
   </tr>`).join('') || '<tr><td colspan="2"><div class="emptynote">No accounts yet — sign in with each account once so its row is provisioned.</div></td></tr>';
@@ -863,6 +886,7 @@ async function loadUsersModal(){
       sel.disabled = false;
       if(updErr){ usersError.textContent = updErr.message; usersError.hidden = false; return; }
       usersError.hidden = true;
+      logActivity('role_change', `${sel.dataset.email || uid} → ${newRole}`);
       if(uid === currentSession.user.id){ currentRole = newRole; renderAuthArea(); } // changed your own role
     });
   });
@@ -901,6 +925,7 @@ document.getElementById('newUserSubmit').addEventListener('click', async ()=>{
     ? `Account created as ${role}. Share the password with them directly.`
     : `Account created as ${role}. Supabase emailed them a confirmation link — they must click it before they can sign in.`;
   newUserStatus.hidden = false;
+  logActivity('account_created', `${email} as ${role}`);
   loadUsersModal();
 });
 
@@ -1588,6 +1613,17 @@ async function upsertUnitRow(vin, patch){
   if(error){ console.error(error); return false; }
   return true;
 }
+// Best-effort audit trail for the Activity Log tab — never blocks or fails
+// the action it's describing; a logging hiccup shouldn't stop a real save.
+async function logActivity(action, detail, vin){
+  if(!sb || !currentSession) return;
+  try{
+    await sb.from('activity_log').insert({
+      actor: currentSession.user.email,
+      action, detail: detail || null, vin: vin || null,
+    });
+  }catch(e){ console.error('activity log failed', e); }
+}
 function subscribeUnitRow(vin, onChange){
   if(!sb || !vin) return ()=>{};
   const channel = sb.channel('unit-'+vin)
@@ -1656,7 +1692,8 @@ function wireChecklistTaps(container, state, dates, vin){
       const touchedEls = affectedKeys.map(k=>container.querySelector(`[data-key="${k}"]`)).filter(Boolean);
       touchedEls.forEach(el2=>el2.classList.toggle('on', turningOn));
       const ok = await upsertUnitRow(vin, { checklist_items: newState, checklist_dates: newDates });
-      if(!ok) touchedEls.forEach(el2=>el2.classList.toggle('on', !turningOn)); // revert on failure
+      if(!ok) touchedEls.forEach(el2=>el2.classList.toggle('on', !turningOn));
+      else logActivity('checklist_tap', `${item ? item.label : key} marked ${turningOn ? 'complete' : 'incomplete'}`, vin);
     });
   });
 }
@@ -1678,11 +1715,18 @@ function openChecklistLog(u){
     }))
     .sort((a,b)=> (b.ts||b.date||'').localeCompare(a.ts||a.date||''));
   const body = document.getElementById('checklistLogBody');
-  body.innerHTML = rows.length ? rows.map(r=>`<tr>
+  body.innerHTML = rows.length ? rows.map(r=>{
+    // Full timestamp when we have one (anything logged after this feature
+    // shipped); older rows only ever recorded a plain date, no time.
+    const when = r.ts
+      ? new Date(r.ts).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})
+      : fmtDate(new Date(r.date+'T00:00:00Z'));
+    return `<tr>
     <td>${r.label}<div class="emptynote">${r.group}</div></td>
     <td>${r.by || '<span class="emptynote">Unknown (logged before this feature)</span>'}</td>
-    <td>${fmtDate(new Date(r.date+'T00:00:00Z'))}</td>
-  </tr>`).join('') : '<tr><td colspan="3"><div class="emptynote">No steps completed yet.</div></td></tr>';
+    <td>${when}</td>
+  </tr>`;
+  }).join('') : '<tr><td colspan="3"><div class="emptynote">No steps completed yet.</div></td></tr>';
   checklistLogOverlay.hidden = false;
 }
 
@@ -1724,13 +1768,17 @@ function wireMilestoneTaps(container, vin){
   container.querySelectorAll('[data-mark]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       btn.disabled = true;
-      const ok = await upsertUnitRow(vin, { [btn.dataset.mark]: todayStr() });
+      const field = btn.dataset.mark;
+      const ok = await upsertUnitRow(vin, { [field]: todayStr() });
       if(!ok) btn.disabled = false;
+      else logActivity('milestone_tap', `${field} marked today`, vin);
     });
   });
   container.querySelectorAll('[data-clear]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
-      await upsertUnitRow(vin, { [btn.dataset.clear]: null });
+      const field = btn.dataset.clear;
+      const ok = await upsertUnitRow(vin, { [field]: null });
+      if(ok) logActivity('milestone_tap', `${field} cleared`, vin);
     });
   });
 }
@@ -1788,7 +1836,10 @@ function renderIssues(items, vin){
       if(removePhoto && removePhoto.checked) newItems[idx].photoUrl = null;
       btn.disabled = true;
       const ok = await upsertUnitRow(vin, { issues: newItems });
-      if(ok){ editingIssueIdx = null; currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin); }
+      if(ok){
+        editingIssueIdx = null; currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin);
+        logActivity('issue_edit', newText.slice(0,120), vin);
+      }
       else btn.disabled = false;
     });
   });
@@ -1797,10 +1848,14 @@ function renderIssues(items, vin){
       if(!confirm('Delete this issue? This cannot be undone.')) return;
       const idx = +btn.dataset.delidx;
       const newItems = ((currentRowData && currentRowData.issues) || []).slice();
+      const removed = newItems[idx];
       newItems.splice(idx, 1);
       btn.disabled = true;
       const ok = await upsertUnitRow(vin, { issues: newItems });
-      if(ok){ currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin); }
+      if(ok){
+        currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin);
+        logActivity('issue_delete', (removed && removed.text) ? removed.text.slice(0,120) : null, vin);
+      }
       else btn.disabled = false;
     });
   });
@@ -1963,6 +2018,7 @@ function openDrawer(vin, sr){
         if(ok){
           document.getElementById('issueText').value = '';
           clearSelectedPhoto();
+          logActivity('issue_add', text.slice(0,120) || (photoUrl ? 'Photo attached' : null), u.vin);
         }
         btn.disabled = false;
         btn.textContent = 'Add issue';
@@ -1984,6 +2040,7 @@ const tabbarEl = document.getElementById('tabbar');
 const tabRosterEl = document.getElementById('tabRoster');
 const tabReportEl = document.getElementById('tabReport');
 const tabAnalysisEl = document.getElementById('tabAnalysis');
+const tabActivityEl = document.getElementById('tabActivity');
 tabbarEl.addEventListener('click', e=>{
   const btn = e.target.closest('.tabbtn');
   if(!btn) return;
@@ -1992,9 +2049,79 @@ tabbarEl.addEventListener('click', e=>{
   tabRosterEl.hidden = tab!=='roster';
   tabReportEl.hidden = tab!=='report';
   tabAnalysisEl.hidden = tab!=='analysis';
+  tabActivityEl.hidden = tab!=='activity';
   if(tab==='report'){ loadReport(); }
   if(tab==='analysis') renderAnalysis();
+  if(tab==='activity') loadActivityLog();
 });
+
+// ---------- Activity log ----------
+let activityRows = [];
+let activitySortCol = null;
+let activitySortDir = 1;
+const ACTION_LABELS = {
+  production_upload: 'Production upload',
+  defect_upload: 'Defect report upload',
+  manual_upload: 'Manual sheet upload',
+  data_clear: 'Data cleared',
+  checklist_tap: 'Checklist updated',
+  milestone_tap: 'Milestone updated',
+  issue_add: 'Issue added',
+  issue_edit: 'Issue edited',
+  issue_delete: 'Issue deleted',
+  role_change: 'Role changed',
+  account_created: 'Account created',
+};
+async function loadActivityLog(){
+  const body = document.getElementById('activityBody');
+  if(!sb){ body.innerHTML = '<tr><td colspan="4"><div class="emptynote">Supabase not configured.</div></td></tr>'; return; }
+  body.innerHTML = '<tr><td colspan="4"><div class="emptynote">Loading&hellip;</div></td></tr>';
+  const { data, error } = await sb.from('activity_log').select('*').order('created_at', {ascending:false}).limit(300);
+  if(error){ body.innerHTML = `<tr><td colspan="4"><div class="emptynote">Couldn't load the activity log: ${escapeHtml(error.message)}</div></td></tr>`; return; }
+  activityRows = data || [];
+  renderActivityLog();
+}
+function renderActivityLog(){
+  const q = document.getElementById('activitySearch').value.trim().toLowerCase();
+  let rows = activityRows.filter(r=>{
+    if(!q) return true;
+    const hay = `${r.actor||''} ${ACTION_LABELS[r.action]||r.action||''} ${r.detail||''} ${r.vin||''}`.toLowerCase();
+    return hay.includes(q);
+  });
+  if(activitySortCol){
+    const keyFn = {
+      time: r=>r.created_at||'',
+      user: r=>r.actor||'',
+      action: r=>ACTION_LABELS[r.action]||r.action||'',
+      detail: r=>r.detail||'',
+    }[activitySortCol];
+    rows = rows.slice().sort((a,b)=>{
+      const ka = keyFn(a), kb = keyFn(b);
+      return ka.localeCompare(kb) * activitySortDir;
+    });
+  }
+  document.getElementById('activityCount').textContent = `${rows.length} / ${activityRows.length} events`;
+  const body = document.getElementById('activityBody');
+  body.innerHTML = rows.length ? rows.map(r=>{
+    const when = r.created_at ? new Date(r.created_at).toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+    const detail = [r.detail, r.vin ? `VIN …${escapeHtml(String(r.vin).slice(-6))}` : null].filter(Boolean).join(' — ');
+    return `<tr><td>${when}</td><td>${escapeHtml(r.actor||'Unknown')}</td><td>${escapeHtml(ACTION_LABELS[r.action]||r.action||'')}</td><td>${escapeHtml(detail)}</td></tr>`;
+  }).join('') : `<tr><td colspan="4"><div class="emptynote">No activity recorded yet.</div></td></tr>`;
+  document.querySelectorAll('#activityTable .sortic').forEach(el=>{
+    const col = el.dataset.col;
+    if(col === activitySortCol){ el.textContent = activitySortDir===1 ? '▲' : '▼'; el.classList.add('active'); }
+    else { el.textContent = '⇅'; el.classList.remove('active'); }
+  });
+}
+document.querySelectorAll('#activityTable th.sortable').forEach(th=>{
+  th.addEventListener('click', ()=>{
+    const col = th.dataset.col;
+    if(activitySortCol === col){ activitySortDir = -activitySortDir; } else { activitySortCol = col; activitySortDir = 1; }
+    renderActivityLog();
+  });
+});
+document.getElementById('activitySearch').addEventListener('input', renderActivityLog);
+document.getElementById('activityRefresh').addEventListener('click', loadActivityLog);
 
 // ---------- defect analysis ----------
 const DEFECT_STATIONS = [...new Set(DEFECTS.map(d=>d[1]))];
@@ -2324,7 +2451,7 @@ async function readWorkbookRows(file){
   return XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
 }
 
-function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tableName, deleteFilterCol, buildStatus }){
+function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tableName, deleteFilterCol, buildStatus, activityAction }){
   const input = document.getElementById(inputId);
   const statusEl = document.getElementById(statusId);
   input.addEventListener('change', async ()=>{
@@ -2362,7 +2489,9 @@ function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tab
     }
     statusEl.textContent = 'Loading…';
     await initData();
-    statusEl.textContent = buildStatus(parsed);
+    const summary = buildStatus(parsed);
+    statusEl.textContent = summary;
+    if(activityAction) logActivity(activityAction, summary);
   });
 }
 
@@ -2391,6 +2520,7 @@ wireUpload('uploadProduction', 'uploadProductionStatus', {
   tableName: 'production_rows',
   deleteFilterCol: 'batch',
   buildStatus: parsed => `Done — ${parsed.length} units loaded.`,
+  activityAction: 'production_upload',
 });
 
 wireUpload('uploadDefects', 'uploadDefectsStatus', {
@@ -2424,6 +2554,7 @@ wireUpload('uploadDefects', 'uploadDefectsStatus', {
     const units = new Set(parsed.map(p=>p.vin)).size;
     return `Done — ${defects} defects across ${units} inspected units.`;
   },
+  activityAction: 'defect_upload',
 });
 
 // ---------- Manual defect sheet upload ----------
@@ -2514,7 +2645,9 @@ function wireManualUpload(){
     await initData();
     const defectCount = defects.filter(d=>d.has_defect).length;
     const units = new Set(defects.map(d=>d.vin)).size;
-    statusEl.textContent = `Done — ${defectCount} defects (severity-rated) across ${units} units, ${statuses.size} with a current location.`;
+    const summary = `Done — ${defectCount} defects (severity-rated) across ${units} units, ${statuses.size} with a current location.`;
+    statusEl.textContent = summary;
+    logActivity('manual_upload', summary);
   });
 }
 wireManualUpload();
@@ -2542,6 +2675,7 @@ function wireClearButton(btnId, statusId, label, tables){
     }
     await initData();
     statusEl.textContent = `Cleared — no ${label} data remains.`;
+    logActivity('data_clear', `Cleared all ${label} data`);
     btn.disabled = false;
   });
 }
