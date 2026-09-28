@@ -1236,8 +1236,9 @@ const ALL_STAGES = [
   {code:"4000", label:"Inspection in", color:"var(--warn)"},
   {code:"4010", label:"QC OK / PDI pending", color:"var(--warn)"},
   {code:"USTK", label:"BU Stock", color:"var(--good)"},
+  {code:"SOLD", label:"Sold", color:"var(--accent)"},
 ];
-const DEFAULT_INCLUDED = new Set(["3010","4000","4010","USTK"]);
+const DEFAULT_INCLUDED = new Set(["3010","4000","4010","USTK","SOLD"]);
 
 function loadIncluded(){
   try{
@@ -1337,7 +1338,7 @@ function currentUnits(){
 // ---------- KPIs (top tiles) — driven by the Monitoring scope checkboxes, and clickable to filter the roster ----------
 const stageCount = code => ROWS.filter(r=>r[5]===code).length;
 const kpisEl = document.getElementById('kpis');
-const KPI_CLS = {PLAN:"plan", "1000":"plan", "1010":"plan", "2000":"plan", "2010":"plan", "3000":"plan", "3010":"accent", "4000":"warn", "4010":"warn", USTK:"good"};
+const KPI_CLS = {PLAN:"plan", "1000":"plan", "1010":"plan", "2000":"plan", "2010":"plan", "3000":"plan", "3010":"accent", "4000":"warn", "4010":"warn", USTK:"good", SOLD:"accent"};
 // null = no tile filter (roster shows everything in scope); "WIP" = the WIP tile; or a stage code.
 let tileFilter = null;
 function setTileFilter(code){
@@ -1359,7 +1360,7 @@ function qupStageCount(){
 function renderKPIs(){
   const includedStageDefs = ALL_STAGES.filter(s=>included.has(s.code));
   const totalInScope = includedStageDefs.reduce((sum,s)=>sum+stageCount(s.code), 0);
-  const wipInScope = includedStageDefs.filter(s=>s.code!=="PLAN" && s.code!=="USTK").reduce((sum,s)=>sum+stageCount(s.code), 0);
+  const wipInScope = includedStageDefs.filter(s=>s.code!=="PLAN" && s.code!=="USTK" && s.code!=="SOLD").reduce((sum,s)=>sum+stageCount(s.code), 0);
   const tiles = [
     {n:totalInScope, l:"Total units (in scope)", cls:"", filter:null},
     {n:wipInScope, l:"Selected WIP", cls:"warn", filter:"WIP"},
@@ -1539,7 +1540,7 @@ function renderTable(){
   const q = searchEl.value.trim().toLowerCase();
   const colorQ = colorFilterEl.value;
   const rows = units.filter(u=>{
-    if(tileFilter==="WIP"){ if(u.statusCode==="PLAN"||u.statusCode==="USTK") return false; }
+    if(tileFilter==="WIP"){ if(u.statusCode==="PLAN"||u.statusCode==="USTK"||u.statusCode==="SOLD") return false; }
     else if(tileFilter==="4000-TESTER"){ if(u.statusCode!=="4000" || groupProgress(u,"tester")>=12) return false; }
     else if(tileFilter==="4000-QUP"){ if(u.statusCode!=="4000" || groupProgress(u,"tester")<12) return false; }
     else if(tileFilter){ if(u.statusCode!==tileFilter) return false; }
