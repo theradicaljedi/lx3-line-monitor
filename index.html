@@ -249,6 +249,8 @@ th.sortable:hover{color:var(--ink)}
 
 .issuelist{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
 .issue{background:var(--surface-2);border-left:3px solid var(--bad);border-radius:0 8px 8px 0;padding:8px 10px}
+.issue.issue-resolved{border-left-color:var(--good);opacity:.65}
+.issue.issue-resolved .txt{text-decoration:line-through;text-decoration-color:var(--muted)}
 .issue .meta{font-size:10.5px;color:var(--muted);font-family:'IBM Plex Mono',monospace;margin-bottom:3px}
 .issue .txt{font-size:13px}
 
@@ -1489,7 +1491,17 @@ function stageBadgeHtml(u){
 function checklistStateFor(u){
   const row = u.vin ? UNIT_ROWS_CACHE[u.vin] : null;
   const seed = seedChecklist(u.vinSuffix);
-  return (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
+  const state = (row && row.checklist_items && Object.keys(row.checklist_items).length) ? row.checklist_items : seed;
+  // Once a unit has cleared Inspection In (status past 4000), every tester-line
+  // step is inherently done — show all dots filled regardless of any gaps in
+  // the recorded per-step flags (e.g. historical bulk-import data).
+  if(["4010","USTK"].includes(u.statusCode)){
+    const testerKeys = CHECKLIST_ITEMS.filter(it=>it.group==="tester").map(it=>it.key);
+    const merged = {...state};
+    testerKeys.forEach(k=>{ merged[k] = true; });
+    return merged;
+  }
+  return state;
 }
 function groupProgress(u, groupKey){
   // -1 for "hasn't reached inspection" so it sorts before/after actual
@@ -1802,7 +1814,9 @@ function renderIssues(items, vin){
     const d = it.ts ? new Date(it.ts).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
     const editedTag = it.editedTs ? ' <span class="emptynote">(edited)</span>' : '';
     const photoHtml = it.photoUrl ? `<a href="${escapeHtml(it.photoUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(it.photoUrl)}" class="issuephoto" alt="Attached photo"></a>` : '';
-    const actions = canManage(it) ? `<button type="button" class="clearbtn" data-editidx="${i}" title="Edit this issue">&#9998;</button><button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>` : '';
+    const resolveBtn = canManage(it) ? `<button type="button" class="clearbtn" data-resolveidx="${i}" title="${it.resolved?'Reopen this issue':'Mark this issue resolved'}">${it.resolved?'&#8630;':'&#10003;'}</button>` : '';
+    const actions = canManage(it) ? `${resolveBtn}<button type="button" class="clearbtn" data-editidx="${i}" title="Edit this issue">&#9998;</button><button type="button" class="clearbtn" data-delidx="${i}" title="Delete this issue">&times;</button>` : '';
+    const resolvedBadge = it.resolved ? `<span class="rolebadge" style="background:var(--good-soft);color:var(--good)">Resolved</span> ` : '';
     if(editingIssueIdx === i){
       return `<div class="issue">
         <div class="meta">Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}</div>
@@ -1814,7 +1828,7 @@ function renderIssues(items, vin){
         </div>
       </div>`;
     }
-    return `<div class="issue"><div class="meta">Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}${actions}</div>${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}${photoHtml}</div>`;
+    return `<div class="issue ${it.resolved?'issue-resolved':''}"><div class="meta">${resolvedBadge}Added by ${escapeHtml(it.author||'Unknown')} &middot; ${d}${editedTag}${actions}</div>${it.text?`<div class="txt">${escapeHtml(it.text)}</div>`:''}${photoHtml}</div>`;
   }).join('');
 
   list.querySelectorAll('[data-editidx]').forEach(btn=>{
@@ -1839,6 +1853,24 @@ function renderIssues(items, vin){
       if(ok){
         editingIssueIdx = null; currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin);
         logActivity('issue_edit', newText.slice(0,120), vin);
+      }
+      else btn.disabled = false;
+    });
+  });
+  list.querySelectorAll('[data-resolveidx]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const idx = +btn.dataset.resolveidx;
+      const newItems = ((currentRowData && currentRowData.issues) || []).slice();
+      const existing = newItems[idx];
+      const nowResolved = !existing.resolved;
+      newItems[idx] = nowResolved
+        ? { ...existing, resolved: true, resolvedBy: (currentSession && currentSession.user.email) || 'Unknown', resolvedTs: Date.now() }
+        : { ...existing, resolved: false, resolvedBy: null, resolvedTs: null };
+      btn.disabled = true;
+      const ok = await upsertUnitRow(vin, { issues: newItems });
+      if(ok){
+        currentRowData = {...currentRowData, issues: newItems}; renderIssues(newItems, vin);
+        logActivity(nowResolved ? 'issue_resolve' : 'issue_reopen', (existing.text||'').slice(0,120), vin);
       }
       else btn.disabled = false;
     });
@@ -2069,6 +2101,8 @@ const ACTION_LABELS = {
   issue_add: 'Issue added',
   issue_edit: 'Issue edited',
   issue_delete: 'Issue deleted',
+  issue_resolve: 'Issue resolved',
+  issue_reopen: 'Issue reopened',
   role_change: 'Role changed',
   account_created: 'Account created',
 };
