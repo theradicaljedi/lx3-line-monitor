@@ -567,7 +567,7 @@ th.sortable:hover{color:var(--ink)}
       </div>
 
       <div class="trendchartHead">
-        <div class="desc" style="margin:14px 0 8px">Units in production order, grouped into equal-sized buckets (early &rarr; late) &mdash; each point is that bucket's average defects/unit.</div>
+        <div class="desc" style="margin:14px 0 8px">Units in production order, grouped into equal-sized buckets (early &rarr; late) &mdash; each point is that bucket's average defects/unit. X-axis labels are VIN number ranges (last 3 digits) covered by that bucket.</div>
         <div class="segtoggle" id="trendChartToggle">
           <button type="button" class="segbtn active" data-mode="dept">By department</button>
           <button type="button" class="segbtn" data-mode="severity">By severity</button>
@@ -2432,10 +2432,13 @@ function renderAnalysis(){
     }
   }
   const bucketAvg = (bucket, valueFn) => bucket.length ? bucket.reduce((s,r)=>s+valueFn(r),0)/bucket.length : 0;
+  // Label buckets by VIN suffix (what the rest of the app shows), not the
+  // internal production S.No — trimmed to the last 3 digits since the
+  // leading digits don't vary within this batch and just add clutter.
   const bucketLabel = bucket => {
-    const first = bucket[0].u, last = bucket[bucket.length-1].u;
-    const a = (first.sr!=null?first.sr:first.vinSuffix), b = (last.sr!=null?last.sr:last.vinSuffix);
-    return a===b ? `#${a}` : `#${a}–${b}`;
+    const shortSuffix = v => String(v).slice(-3);
+    const a = shortSuffix(bucket[0].vinSuffix), b = shortSuffix(bucket[bucket.length-1].vinSuffix);
+    return a===b ? a : `${a}–${b}`;
   };
   function seriesFrom(labels, fieldIdx, fallback){
     return labels.map((label,i)=>({
