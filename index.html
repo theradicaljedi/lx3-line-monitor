@@ -670,14 +670,44 @@ function closeChecklistLog(){ checklistLogOverlay.hidden = true; }
 document.getElementById('checklistLogClose').addEventListener('click', closeChecklistLog);
 checklistLogOverlay.addEventListener('click', e=>{ if(e.target===checklistLogOverlay) closeChecklistLog(); });
 
-function openDefectDetail(title, desc, mode, rows){
-  document.getElementById('defectDetailTitle').textContent = title;
-  document.getElementById('defectDetailDesc').textContent = desc || '';
+// Sortable columns in the drill-down modal — reset fresh each time it's
+// opened for a new slice of data, then re-render in place on header clicks.
+let defectDetailState = null; // {mode, rows}
+let defectDetailSortCol = null;
+let defectDetailSortDir = 1;
+const DEFECT_DETAIL_COLS = {
+  defects: [
+    {key:'vin', label:'VIN', get:d=>(ALL_UNITS.find(x=>x.vinSuffix===d[0])||{}).vin || d[0] || ''},
+    {key:'station', label:'Station', get:d=>d[1]||''},
+    {key:'defect', label:'Defect', get:d=>d[2]||''},
+    {key:'date', label:'Date', get:d=>d[3]||0},
+  ],
+  units: [
+    {key:'vin', label:'VIN', get:r=>(r.u?r.u.vin:r.vinSuffix)||''},
+    {key:'color', label:'Color', get:r=>(r.u?r.u.colorCode:'')||''},
+    {key:'stage', label:'Stage', get:r=>(r.u?r.u.stage.label:'')||''},
+    {key:'count', label:'Defect count', get:r=>r.count},
+  ],
+};
+function renderDefectDetailBody(){
+  const { mode, rows } = defectDetailState;
+  const cols = DEFECT_DETAIL_COLS[mode];
   const head = document.getElementById('defectDetailHead');
   const body = document.getElementById('defectDetailBody');
+  head.innerHTML = '<tr>' + cols.map(c=>
+    `<th class="sortable" data-col="${c.key}">${c.label} <span class="sortic" data-col="${c.key}"></span></th>`
+  ).join('') + '</tr>';
+  let sortedRows = rows;
+  if(defectDetailSortCol){
+    const col = cols.find(c=>c.key===defectDetailSortCol);
+    sortedRows = rows.slice().sort((a,b)=>{
+      const ka = col.get(a), kb = col.get(b);
+      const cmp = typeof ka==='string' ? ka.localeCompare(kb) : (ka-kb);
+      return cmp * defectDetailSortDir;
+    });
+  }
   if(mode === 'defects'){
-    head.innerHTML = '<tr><th>VIN</th><th>Station</th><th>Defect</th><th>Date</th></tr>';
-    body.innerHTML = rows.length ? rows.map(d=>{
+    body.innerHTML = sortedRows.length ? sortedRows.map(d=>{
       const u = ALL_UNITS.find(x=>x.vinSuffix===d[0]);
       return `<tr class="detail-row" data-vin="${u?u.vin:''}" data-sr="${u?u.sr:''}">
         <td><span class="vin">${u?u.vin:d[0]}</span></td>
@@ -687,8 +717,7 @@ function openDefectDetail(title, desc, mode, rows){
       </tr>`;
     }).join('') : '<tr><td colspan="4"><div class="emptynote">Nothing here.</div></td></tr>';
   } else { // 'units'
-    head.innerHTML = '<tr><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr>';
-    body.innerHTML = rows.length ? rows.map(r=>{
+    body.innerHTML = sortedRows.length ? sortedRows.map(r=>{
       const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
       return `<tr class="detail-row" data-vin="${r.u?r.u.vin:''}" data-sr="${r.u?r.u.sr:''}">
         <td><span class="vin">${r.u ? r.u.vin : r.vinSuffix}</span></td>
@@ -698,6 +727,22 @@ function openDefectDetail(title, desc, mode, rows){
       </tr>`;
     }).join('') : '<tr><td colspan="4"><div class="emptynote">Nothing here.</div></td></tr>';
   }
+  head.querySelectorAll('th.sortable').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const col = th.dataset.col;
+      if(defectDetailSortCol === col){ defectDetailSortDir = -defectDetailSortDir; } else { defectDetailSortCol = col; defectDetailSortDir = 1; }
+      renderDefectDetailBody();
+    });
+  });
+  head.querySelectorAll('.sortic').forEach(el=>{
+    const col = el.dataset.col;
+    if(col === defectDetailSortCol){
+      el.textContent = defectDetailSortDir===1 ? '▲' : '▼';
+      el.classList.add('active');
+    } else {
+      el.textContent = '⇅';
+    }
+  });
   body.querySelectorAll('tr[data-sr]').forEach(tr=>{
     if(!tr.dataset.sr) return;
     tr.addEventListener('click', ()=>{
@@ -706,6 +751,14 @@ function openDefectDetail(title, desc, mode, rows){
       openDrawer(tr.dataset.vin, +tr.dataset.sr);
     });
   });
+}
+function openDefectDetail(title, desc, mode, rows){
+  document.getElementById('defectDetailTitle').textContent = title;
+  document.getElementById('defectDetailDesc').textContent = desc || '';
+  defectDetailState = { mode, rows };
+  defectDetailSortCol = null;
+  defectDetailSortDir = 1;
+  renderDefectDetailBody();
   defectDetailOverlay.hidden = false;
 }
 document.getElementById('signinSubmit').addEventListener('click', async ()=>{
@@ -1181,6 +1234,37 @@ function escapeHtml(s){
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 const TODAY = new Date(); // real "today" in a live deployment, unlike the fixed snapshot date used while this was a static artifact
+
+// Phone camera photos routinely run 3-8MB — re-encode as JPEG and step
+// quality/dimensions down until it fits the target, so Issue photos don't
+// eat Supabase storage. Falls back to the original file if the browser
+// can't decode it (createImageBitmap unsupported/rejected).
+async function compressImageToLimit(file, maxBytes){
+  let bitmap;
+  try{ bitmap = await createImageBitmap(file); }
+  catch(e){ return file; }
+  let width = bitmap.width, height = bitmap.height;
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  async function renderAt(w, h, quality){
+    canvas.width = w; canvas.height = h;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+  }
+  let quality = 0.85;
+  let blob = await renderAt(width, height, quality);
+  while(blob && blob.size > maxBytes && quality > 0.35){
+    quality -= 0.15;
+    blob = await renderAt(width, height, quality);
+  }
+  while(blob && blob.size > maxBytes && width > 480 && height > 480){
+    width = Math.round(width * 0.8);
+    height = Math.round(height * 0.8);
+    blob = await renderAt(width, height, quality);
+  }
+  bitmap.close && bitmap.close();
+  return blob || file;
+}
 
 // Days spent in the unit's CURRENT stage — not days since some fixed ERP
 // reference date. Each status code maps to the date the unit entered that
@@ -1807,9 +1891,11 @@ function openDrawer(vin, sr){
         btn.disabled = true;
         let photoUrl = null;
         if(photoFile){
+          btn.textContent = 'Compressing photo…';
+          const compressed = await compressImageToLimit(photoFile, 500 * 1024); // 500KB cap for storage
           btn.textContent = 'Uploading photo…';
-          const path = `${u.vin}/${Date.now()}-${photoFile.name}`.replace(/\s+/g,'_');
-          const { error: upErr } = await sb.storage.from('issue-photos').upload(path, photoFile);
+          const path = `${u.vin}/${Date.now()}-photo.jpg`;
+          const { error: upErr } = await sb.storage.from('issue-photos').upload(path, compressed, { contentType: 'image/jpeg' });
           if(upErr){
             const errEl = document.getElementById('issuePhotoError');
             errEl.textContent = 'Photo upload failed: ' + upErr.message;
@@ -1968,15 +2054,19 @@ function renderAnalysis(){
   const byDesc = {};
   DEFECTS.forEach(d=>{
     const key = d[2].trim().toUpperCase();
-    if(!byDesc[key]) byDesc[key] = {desc:d[2], station:d[1], count:0, rows:[]};
+    if(!byDesc[key]) byDesc[key] = {desc:d[2], station:d[1], count:0, rows:[], byDept:{}};
     byDesc[key].count++;
     byDesc[key].rows.push(d);
+    const dept = d[4] || 'Unassigned';
+    byDesc[key].byDept[dept] = (byDesc[key].byDept[dept] || 0) + 1;
   });
   const topDefects = Object.values(byDesc).sort((a,b)=>b.count-a.count).slice(0,15);
   const topDefectsBody = document.getElementById('topDefectsBody');
-  topDefectsBody.innerHTML = topDefects.map((t,i)=>
-    `<tr class="detail-row" data-i="${i}"><td>${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td><td>${t.count}</td></tr>`
-  ).join('') || `<tr><td colspan="3"><div class="emptynote">No defects recorded.</div></td></tr>`;
+  topDefectsBody.innerHTML = topDefects.map((t,i)=>{
+    const deptBreakup = Object.entries(t.byDept).sort((a,b)=>b[1]-a[1])
+      .map(([dept,n])=>`${escapeHtml(dept)} ${n}`).join(', ');
+    return `<tr class="detail-row" data-i="${i}"><td>${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td><td>${t.count}<div class="emptynote">${deptBreakup}</div></td></tr>`;
+  }).join('') || `<tr><td colspan="3"><div class="emptynote">No defects recorded.</div></td></tr>`;
   topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
     const t = topDefects[+tr.dataset.i];
     tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows));
