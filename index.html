@@ -569,7 +569,8 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     </div>
 
     <div class="panel">
-      <h2>Trend across later-produced units</h2>
+      <h2>Trend across later-produced units <button type="button" class="collapsebtn" id="trendCollapseBtn" title="Expand">&#9656;</button></h2>
+      <div id="trendPanelBody" hidden>
       <div class="desc">Inspected units split into an early subset and a later subset by production serial no. &mdash; compares average defects/unit between the two to see whether quality is improving or worsening as the line matures. Drag the slider to change where the split falls.</div>
       <div class="trendslider">
         <input type="range" id="trendSplitSlider" min="1" max="99" value="50" step="1">
@@ -592,6 +593,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
       </div>
       <div id="trendChartWrap"><svg id="trendChart" viewBox="0 0 680 260" preserveAspectRatio="xMidYMid meet" role="img"></svg></div>
       <div id="trendChartLegend" class="trendlegend"></div>
+      </div>
     </div>
 
     <div class="panel">
@@ -2691,6 +2693,12 @@ document.getElementById('trendChartToggle').addEventListener('click', e=>{
   trendChartMode = btn.dataset.mode;
   document.querySelectorAll('#trendChartToggle .segbtn').forEach(b=>b.classList.toggle('active', b===btn));
   renderTrendChart();
+});
+document.getElementById('trendCollapseBtn').addEventListener('click', ()=>{
+  const body = document.getElementById('trendPanelBody');
+  body.hidden = !body.hidden;
+  document.getElementById('trendCollapseBtn').innerHTML = body.hidden ? '&#9656;' : '&#9662;';
+  document.getElementById('trendCollapseBtn').title = body.hidden ? 'Expand' : 'Collapse';
 });
 
 // ---------- production report ----------
