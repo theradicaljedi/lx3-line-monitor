@@ -2776,12 +2776,17 @@ function renderReportTable(counts){
     return `<tr><td>${m.label}</td>${cellsHtml}<td class="reporttotalcell">${total}</td></tr>`;
   }).join('');
   bodyEl.innerHTML = `
-    <div class="tablewrap">
+    <div class="tablewrap" id="reportTableWrap">
       <table>
         <thead>${theadHtml}</thead>
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>`;
+  // Default view is the most recent ~7 days + Total — scroll the wrapper
+  // all the way right so that's what's in frame; older dates (further
+  // left, since columns run oldest->newest) are reached by scrolling back.
+  const wrap = document.getElementById('reportTableWrap');
+  wrap.scrollLeft = wrap.scrollWidth;
 }
 document.getElementById('reportRefresh').addEventListener('click', ()=>{ loadReport(); });
 
