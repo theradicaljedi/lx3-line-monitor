@@ -150,6 +150,7 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .trendlegend .sw{width:10px;height:10px;border-radius:3px;flex:none}
 .trendpt{cursor:pointer}
 
+.scan-video{width:100%;border-radius:8px;background:#000;display:block;max-height:320px;object-fit:cover}
 .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
 .toolbar input[type=search]{flex:1;min-width:180px;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
 .toolbar select{padding:9px 10px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:13px}
@@ -483,6 +484,17 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     </div>
   </div>
 
+  <div id="scanOverlay" class="signin-overlay" hidden>
+    <div class="signin-box" style="max-width:420px">
+      <div class="signin-hdr">
+        <h3>Scan VIN barcode</h3>
+        <button type="button" class="closebtn" id="scanClose">&times;</button>
+      </div>
+      <video id="scanVideo" class="scan-video" muted playsinline autoplay></video>
+      <div class="desc" id="scanStatus" style="margin-top:10px;margin-bottom:0">Point the camera at the VIN barcode sticker&hellip;</div>
+    </div>
+  </div>
+
   <div class="panel" id="authGate" style="text-align:center;padding:40px 20px" hidden>
     <h2 style="margin-bottom:8px">Sign in to view this dashboard</h2>
     <div class="desc" style="margin-bottom:16px">The LX3 line data is only visible to signed-in accounts. Ask whoever administers this dashboard for one &mdash; there's no public sign-up.</div>
@@ -504,6 +516,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
       <h2>Units</h2>
       <div class="toolbar">
         <input type="search" id="search" placeholder="Search VIN or batch&hellip;">
+        <button type="button" class="iconbtn" id="scanBtn" title="Scan a VIN barcode sticker with the camera">&#128247; Scan VIN</button>
         <select id="stageFilter"></select>
         <select id="colorFilter"></select>
         <label class="bu-toggle"><input type="checkbox" id="includeBU" checked> Include BU</label>
@@ -798,8 +811,8 @@ function renderDefectDetailBody(){
   if(mode === 'defects'){
     body.innerHTML = sortedRows.length ? sortedRows.map(d=>{
       const u = ALL_UNITS.find(x=>x.vinSuffix===d[0]);
-      return `<tr class="detail-row" data-vin="${u?u.vin:''}" data-sr="${u?u.sr:''}">
-        <td><span class="vin">${u?u.vin:d[0]}</span></td>
+      return `<tr class="detail-row" data-vin="${escapeHtml(u?u.vin:'')}" data-sr="${u?u.sr:''}">
+        <td><span class="vin">${escapeHtml(u?u.vin:d[0])}</span></td>
         <td>${escapeHtml(d[1])}</td>
         <td>${escapeHtml(d[2])}</td>
         <td>${fmtDate(xl(d[3]))}</td>
@@ -808,9 +821,9 @@ function renderDefectDetailBody(){
   } else { // 'units'
     body.innerHTML = sortedRows.length ? sortedRows.map(r=>{
       const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
-      return `<tr class="detail-row" data-vin="${r.u?r.u.vin:''}" data-sr="${r.u?r.u.sr:''}">
-        <td><span class="vin">${r.u ? r.u.vin : r.vinSuffix}</span></td>
-        <td>${swatch}${r.u ? (r.u.colorCode||'') : ''}</td>
+      return `<tr class="detail-row" data-vin="${escapeHtml(r.u?r.u.vin:'')}" data-sr="${r.u?r.u.sr:''}">
+        <td><span class="vin">${escapeHtml(r.u ? r.u.vin : r.vinSuffix)}</span></td>
+        <td>${swatch}${escapeHtml(r.u ? (r.u.colorCode||'') : '')}</td>
         <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
         <td>${r.count}</td>
       </tr>`;
@@ -1639,10 +1652,10 @@ function renderTable(){
   tbody.innerHTML = rows.map((u,i)=>{
     const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : `<span class="swatch" style="background:transparent;border-style:dashed"></span>`;
     const wip = u.wipDays==null ? '<span class="emptynote">&mdash;</span>' : `<span class="wipdays ${u.wipDays>25?'high':''}">${u.wipDays} d</span>`;
-    return `<tr data-vin="${u.vin||''}" data-sr="${u.sr}">
+    return `<tr data-vin="${escapeHtml(u.vin||'')}" data-sr="${u.sr}">
       <td>${i+1}</td>
-      <td>${u.vin ? `<span class="vin">${u.vin}</span>` : `<span class="emptynote">not yet assigned</span>`}</td>
-      <td>${swatch}${u.colorCode||'<span class="emptynote">pending</span>'}</td>
+      <td>${u.vin ? `<span class="vin">${escapeHtml(u.vin)}</span>` : `<span class="emptynote">not yet assigned</span>`}</td>
+      <td>${swatch}${u.colorCode?escapeHtml(u.colorCode):'<span class="emptynote">pending</span>'}</td>
       <td>${stageBadgeHtml(u)}</td>
       <td>${vqMiniHtml(u)}</td>
       <td>${repairMiniHtml(u)}</td>
@@ -1660,6 +1673,81 @@ stageFilterEl.addEventListener('change', ()=>{
 colorFilterEl.addEventListener('change', renderTable);
 renderStagePicker();
 renderAll();
+
+// ---------- Scan VIN — reads the barcode SAP's ZPPBC sticker already
+// carries (the VIN itself), via the camera, and jumps straight to that
+// unit's card. Prefers the native BarcodeDetector API (Chrome/Android);
+// falls back to the ZXing library (loaded lazily, only when needed) for
+// browsers that don't implement it yet, notably Safari/iOS. ----------
+const scanOverlay = document.getElementById('scanOverlay');
+const scanVideo = document.getElementById('scanVideo');
+const scanStatusEl = document.getElementById('scanStatus');
+let scanStream = null, scanRAF = null, zxingReader = null;
+function loadZXing(){
+  return new Promise((resolve, reject)=>{
+    if(window.ZXing) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
+    s.onload = ()=>resolve();
+    s.onerror = ()=>reject(new Error('Could not load the barcode scanner library.'));
+    document.head.appendChild(s);
+  });
+}
+function stopScan(){
+  if(scanRAF){ cancelAnimationFrame(scanRAF); scanRAF = null; }
+  if(zxingReader){ try{ zxingReader.reset(); }catch(e){} zxingReader = null; }
+  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream = null; }
+  scanVideo.srcObject = null;
+}
+function handleScanResult(rawText){
+  stopScan();
+  scanOverlay.hidden = true;
+  const code = (rawText || '').trim().toUpperCase();
+  const u = ALL_UNITS.find(x=>x.vin && x.vin.toUpperCase() === code)
+    || ALL_UNITS.find(x=>x.vinSuffix && code.endsWith(x.vinSuffix));
+  if(!u){ alert(`No unit in the current data matches the scanned code:\n${rawText}`); return; }
+  tabbarEl.querySelector('[data-tab="roster"]').click();
+  openDrawer(u.vin, u.sr);
+}
+async function startScan(){
+  scanStatusEl.textContent = 'Point the camera at the VIN barcode sticker…';
+  if('BarcodeDetector' in window){
+    try{
+      scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      scanVideo.srcObject = scanStream;
+      await scanVideo.play();
+      const detector = new BarcodeDetector({ formats: ['code_128','code_39','ean_13','upc_a','qr_code'] });
+      const tick = async ()=>{
+        if(!scanStream) return; // stopped while a detect() was in flight
+        try{
+          const codes = await detector.detect(scanVideo);
+          if(codes.length){ handleScanResult(codes[0].rawValue); return; }
+        } catch(e){ /* keep trying — a single failed frame isn't fatal */ }
+        scanRAF = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch(e){
+      scanStatusEl.textContent = `Camera error: ${e.message}`;
+    }
+  } else {
+    try{
+      scanStatusEl.textContent = 'Loading scanner…';
+      await loadZXing();
+      scanStatusEl.textContent = 'Point the camera at the VIN barcode sticker…';
+      zxingReader = new ZXing.BrowserMultiFormatReader();
+      await zxingReader.decodeFromVideoDevice(undefined, scanVideo, (result)=>{
+        if(result) handleScanResult(result.getText());
+      });
+    } catch(e){
+      scanStatusEl.textContent = `Camera error: ${e.message}`;
+    }
+  }
+}
+function openScanModal(){ scanOverlay.hidden = false; startScan(); }
+function closeScanModal(){ scanOverlay.hidden = true; stopScan(); }
+document.getElementById('scanBtn').addEventListener('click', openScanModal);
+document.getElementById('scanClose').addEventListener('click', closeScanModal);
+scanOverlay.addEventListener('click', e=>{ if(e.target===scanOverlay) closeScanModal(); });
 
 // =====================================================================
 // ---------- Supabase data layer (replaces the Claude-artifact db capability) ----------
@@ -1863,7 +1951,7 @@ function renderMilestonesBody(row, canWrite){
 // — static per unit, so this only ever needs rendering once, in openDrawer.
 function metaRowsHtml(u){
   const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : '';
-  return `<div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc||'Pending'}</span></div>
+  return `<div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc?escapeHtml(u.colorDesc):'Pending'}</span></div>
     <div class="trow"><span>Stage</span><span class="d">${u.stage.label}</span></div>
     <div class="trow"><span>Days in WIP</span><span class="d">${u.wipDays==null?'—':u.wipDays+' days'}</span></div>`;
 }
@@ -2044,7 +2132,7 @@ function openDrawer(vin, sr){
    <div class="drawer-inner">
     <div class="drawer-hdr">
       <div>
-        <h2>${u.vin || u.batch}</h2>
+        <h2>${escapeHtml(u.vin || u.batch || '')}</h2>
         ${isPlan ? `<div class="sub" style="color:var(--muted);font-size:12px">VIN not yet assigned</div>` : ''}
       </div>
       <button class="closebtn" id="closeBtn">&times;</button>
@@ -2543,10 +2631,10 @@ function renderAnalysis(){
     (a.u ? a.u.vin : a.vinSuffix).localeCompare(b.u ? b.u.vin : b.vinSuffix));
   document.getElementById('defectsByVinBody').innerHTML = vinRowsAscending.map((r,i)=>{
     const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
-    return `<tr data-vin="${r.u?r.u.vin:''}" data-sr="${r.u?r.u.sr:''}">
+    return `<tr data-vin="${escapeHtml(r.u?r.u.vin:'')}" data-sr="${r.u?r.u.sr:''}">
       <td>${i+1}</td>
-      <td><span class="vin">${r.u ? r.u.vin : r.vinSuffix}</span></td>
-      <td>${swatch}${r.u ? (r.u.colorCode||'') : ''}</td>
+      <td><span class="vin">${escapeHtml(r.u ? r.u.vin : r.vinSuffix)}</span></td>
+      <td>${swatch}${escapeHtml(r.u ? (r.u.colorCode||'') : '')}</td>
       <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
       <td>${r.count}</td>
     </tr>`;
