@@ -542,7 +542,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
 
   <div id="tabReport" hidden>
     <div class="panel">
-      <h2>Production report <button type="button" class="collapsebtn" id="reportRefresh" title="Refresh">&#8635;</button></h2>
+      <h2>Production report <button type="button" class="iconbtn" id="reportRangeToggle" style="margin-left:auto">Show full history</button> <button type="button" class="collapsebtn" id="reportRefresh" title="Refresh">&#8635;</button></h2>
       <div id="reportBody"><div class="emptynote">Loading&hellip;</div></div>
     </div>
 
@@ -2757,20 +2757,32 @@ async function loadReport(){
   renderReportTable(counts);
 }
 
+let reportShowFullHistory = false;
+let lastReportCounts = null;
 function renderReportTable(counts){
+  lastReportCounts = counts;
   const bodyEl = document.getElementById('reportBody');
-  const dates = Object.keys(counts).sort((a,b)=>a.localeCompare(b));
-  if(!dates.length){
+  const allDates = Object.keys(counts).sort((a,b)=>a.localeCompare(b));
+  if(!allDates.length){
     bodyEl.innerHTML = '<div class="emptynote">No dated activity recorded yet.</div>';
     return;
   }
+  // Default: only the last 7 days actually get their own column — "Total"
+  // is still the grand total across every date on record, not just the
+  // visible window. "Show full history" reveals every date as columns
+  // instead (horizontally scrollable) for anyone who needs to look further
+  // back than a week.
+  const dates = reportShowFullHistory ? allDates : allDates.slice(-7);
+  const rangeToggleBtn = document.getElementById('reportRangeToggle');
+  rangeToggleBtn.textContent = reportShowFullHistory ? 'Show last 7 days' : 'Show full history';
+  rangeToggleBtn.hidden = allDates.length <= 7;
   const dateLabels = dates.map(d=>new Date(d+'T00:00:00Z').toLocaleDateString('en-GB',{day:'2-digit',month:'short'}));
   const theadHtml = `<tr><th>Stage</th>${dateLabels.map(l=>`<th>${l}</th>`).join('')}<th>Total</th></tr>`;
   const rowsHtml = REPORT_METRICS.map(m=>{
     let total = 0;
+    allDates.forEach(d=>{ total += counts[d][m.key] || 0; }); // grand total, not just the visible window
     const cellsHtml = dates.map(d=>{
       const v = counts[d][m.key] || 0;
-      total += v;
       return `<td>${v||''}</td>`;
     }).join('');
     return `<tr><td>${m.label}</td>${cellsHtml}<td class="reporttotalcell">${total}</td></tr>`;
@@ -2782,12 +2794,11 @@ function renderReportTable(counts){
         <tbody>${rowsHtml}</tbody>
       </table>
     </div>`;
-  // Default view is the most recent ~7 days + Total — scroll the wrapper
-  // all the way right so that's what's in frame; older dates (further
-  // left, since columns run oldest->newest) are reached by scrolling back.
-  const wrap = document.getElementById('reportTableWrap');
-  wrap.scrollLeft = wrap.scrollWidth;
 }
+document.getElementById('reportRangeToggle').addEventListener('click', ()=>{
+  reportShowFullHistory = !reportShowFullHistory;
+  if(lastReportCounts) renderReportTable(lastReportCounts);
+});
 document.getElementById('reportRefresh').addEventListener('click', ()=>{ loadReport(); });
 
 // ---------- cycle time ----------
