@@ -113,6 +113,8 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .panel .desc{color:var(--muted);font-size:12px;margin-bottom:14px}
 .collapsebtn{margin-left:auto;width:22px;height:22px;line-height:1;border-radius:6px;border:1px solid var(--line);background:var(--surface-2);color:var(--ink);font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .collapsebtn:hover{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.collapsebtn:disabled{opacity:.4;cursor:default;background:var(--surface-2);color:var(--ink);border-color:var(--line)}
+#reportPrevWeek,#reportNextWeek{margin-left:0}
 
 .stagepicker{display:flex;flex-wrap:wrap;gap:8px}
 .stagepicker label{display:flex;align-items:center;gap:6px;font-size:12.5px;background:var(--surface-2);border:1px solid var(--line);border-radius:20px;padding:6px 12px 6px 10px;cursor:pointer;user-select:none}
@@ -544,7 +546,14 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
 
   <div id="tabReport" hidden>
     <div class="panel">
-      <h2>Production report <button type="button" class="iconbtn" id="reportRangeToggle" style="margin-left:auto">Show full history</button> <button type="button" class="collapsebtn" id="reportRefresh" title="Refresh">&#8635;</button></h2>
+      <h2>Production report
+        <span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+          <button type="button" class="collapsebtn" id="reportPrevWeek" title="Previous 7 days">&#8249;</button>
+          <span class="emptynote" id="reportWeekLabel" style="font-style:normal"></span>
+          <button type="button" class="collapsebtn" id="reportNextWeek" title="Next 7 days">&#8250;</button>
+        </span>
+        <button type="button" class="collapsebtn" id="reportRefresh" title="Refresh">&#8635;</button>
+      </h2>
       <div id="reportBody"><div class="emptynote">Loading&hellip;</div></div>
     </div>
 
@@ -2759,30 +2768,35 @@ async function loadReport(){
   renderReportTable(counts);
 }
 
-let reportShowFullHistory = false;
+// weekOffset 0 = the most recent 7 days on record; 1 = the 7 days before
+// that; etc. — Prev/Next just move this back and forth a week at a time.
+let reportWeekOffset = 0;
 let lastReportCounts = null;
 function renderReportTable(counts){
   lastReportCounts = counts;
   const bodyEl = document.getElementById('reportBody');
   const allDates = Object.keys(counts).sort((a,b)=>a.localeCompare(b));
+  const prevBtn = document.getElementById('reportPrevWeek');
+  const nextBtn = document.getElementById('reportNextWeek');
+  const weekLabelEl = document.getElementById('reportWeekLabel');
   if(!allDates.length){
     bodyEl.innerHTML = '<div class="emptynote">No dated activity recorded yet.</div>';
+    prevBtn.hidden = nextBtn.hidden = true; weekLabelEl.textContent = '';
     return;
   }
-  // Default: only the last 7 days actually get their own column — "Total"
-  // is still the grand total across every date on record, not just the
-  // visible window. "Show full history" reveals every date as columns
-  // instead (horizontally scrollable) for anyone who needs to look further
-  // back than a week.
-  const dates = reportShowFullHistory ? allDates : allDates.slice(-7);
-  const rangeToggleBtn = document.getElementById('reportRangeToggle');
-  rangeToggleBtn.textContent = reportShowFullHistory ? 'Show last 7 days' : 'Show full history';
-  rangeToggleBtn.hidden = allDates.length <= 7;
-  const dateLabels = dates.map(d=>new Date(d+'T00:00:00Z').toLocaleDateString('en-GB',{day:'2-digit',month:'short'}));
+  const end = allDates.length - reportWeekOffset*7;
+  const start = Math.max(0, end - 7);
+  const dates = allDates.slice(start, end);
+  const fmtLabel = d=>new Date(d+'T00:00:00Z').toLocaleDateString('en-GB',{day:'2-digit',month:'short'});
+  prevBtn.hidden = nextBtn.hidden = allDates.length <= 7;
+  prevBtn.disabled = start === 0;
+  nextBtn.disabled = reportWeekOffset === 0;
+  weekLabelEl.textContent = dates.length ? `${fmtLabel(dates[0])} – ${fmtLabel(dates[dates.length-1])}` : '';
+  const dateLabels = dates.map(fmtLabel);
   const theadHtml = `<tr><th>Stage</th>${dateLabels.map(l=>`<th>${l}</th>`).join('')}<th>Total</th></tr>`;
   const rowsHtml = REPORT_METRICS.map(m=>{
     let total = 0;
-    allDates.forEach(d=>{ total += counts[d][m.key] || 0; }); // grand total, not just the visible window
+    allDates.forEach(d=>{ total += counts[d][m.key] || 0; }); // grand total, not just the visible week
     const cellsHtml = dates.map(d=>{
       const v = counts[d][m.key] || 0;
       return `<td>${v||''}</td>`;
@@ -2797,11 +2811,15 @@ function renderReportTable(counts){
       </table>
     </div>`;
 }
-document.getElementById('reportRangeToggle').addEventListener('click', ()=>{
-  reportShowFullHistory = !reportShowFullHistory;
+document.getElementById('reportPrevWeek').addEventListener('click', ()=>{
+  reportWeekOffset++;
   if(lastReportCounts) renderReportTable(lastReportCounts);
 });
-document.getElementById('reportRefresh').addEventListener('click', ()=>{ loadReport(); });
+document.getElementById('reportNextWeek').addEventListener('click', ()=>{
+  if(reportWeekOffset > 0) reportWeekOffset--;
+  if(lastReportCounts) renderReportTable(lastReportCounts);
+});
+document.getElementById('reportRefresh').addEventListener('click', ()=>{ reportWeekOffset = 0; loadReport(); });
 
 // ---------- cycle time ----------
 // =====================================================================
