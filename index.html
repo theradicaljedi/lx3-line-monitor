@@ -1509,16 +1509,15 @@ function movementDateFor(u, code){
   const m = u.movements.find(m=>m.status_code===code);
   return m ? m.moved_at : null;
 }
-// The status to actually trust for "is this unit really done with X" logic
-// (checklist auto-complete, whether the VQ panel even shows) — the real,
-// manually-tracked status for an advance-posted unit, since its raw SAP
-// status is known-false (set early for invoicing); the raw SAP status for
-// everyone else.
-function effectiveStatusCode(u){ return u.advancePosted ? u.secondaryStatusCode : u.statusCode; }
-// Same idea but as a full ALL_STAGES entry — falls back to the raw SAP
-// stage (rather than null) so callers that just want "a label to show"
-// don't have to null-check for the advance-posted-but-pending case.
-function effectiveStage(u){ return (u.advancePosted ? u.secondaryStage : u.stage) || u.stage; }
+// REVERTED to always trust the raw SAP upload (precedence restored) — the
+// production team is now baking physical-location data directly into the
+// regular Production Data Upload file itself, so there's no longer a gap
+// for the Advance Posted override to fill. The Advance Posted data/UI
+// (movement log, Manage Users toggle, etc.) is left in place, unused, in
+// case this needs to be switched back — to re-enable, swap these two
+// functions back to checking u.advancePosted (see git history).
+function effectiveStatusCode(u){ return u.statusCode; }
+function effectiveStage(u){ return u.stage; }
 
 const ALL_UNITS = ROWS.map(r=>{
   const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
