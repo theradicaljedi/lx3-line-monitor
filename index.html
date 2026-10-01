@@ -1019,7 +1019,7 @@ function defectTrendShellHtml(rows){
   });
   Object.keys(vinsByDay).forEach(day=>{ defectTrendThroughput[day] = vinsByDay[day].size; });
   return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
-    <div class="emptynote" style="margin-bottom:6px">N = units that passed ${escapeHtml(station)} that day</div>
+    <div class="emptynote" style="margin-bottom:6px"><span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(station)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed</div>
     <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
 }
 function renderDefectTrendChart(){
@@ -1050,7 +1050,7 @@ function renderDefectTrendChart(){
       const cy = y(defectTrendCounts[d]);
       parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="var(--accent)"/>`);
       parts.push(`<text x="${x(d).toFixed(1)}" y="${(cy-10).toFixed(1)}" font-size="12" text-anchor="middle" fill="var(--ink)" font-weight="600">${defectTrendCounts[d]}</text>`);
-      if(passed) parts.push(`<text x="${x(d).toFixed(1)}" y="${(cy+16).toFixed(1)}" font-size="10" text-anchor="middle" fill="#2b6cb0" font-weight="600">${passed}</text>`);
+      if(passed) parts.push(`<text x="${x(d).toFixed(1)}" y="${(cy+16).toFixed(1)}" font-size="10" text-anchor="middle" fill="#c0392b" font-weight="600">${passed}</text>`);
     });
   }
   svg.innerHTML = parts.join('');
