@@ -204,7 +204,13 @@ th.sortable:hover{color:var(--ink)}
 .aptag{font-size:8.5px;font-weight:700;letter-spacing:.03em;background:var(--warn);color:#fff;border-radius:4px;padding:1px 4px;margin-left:4px;vertical-align:1px}
 .badge.apbadge-pending{background:var(--warn-soft);color:var(--warn)}
 .apbanner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:12px}
+.apbanner.apbanner-col{flex-direction:column;align-items:stretch}
 .apbanner select,.apbanner input[type=date]{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:12.5px}
+.apmovetable{width:100%;border-collapse:collapse;margin-top:8px;font-size:12px;color:var(--ink)}
+.apmovetable th{text-align:left;font-weight:600;padding:4px 8px;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.03em}
+.apmovetable td{padding:4px 8px;background:var(--surface);border-top:1px solid var(--line)}
+.apmovetable tr:first-child td{border-top:none}
+.apaddrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
 .vqmini{display:flex;gap:3px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
 .dot.on{background:var(--good)}
@@ -734,6 +740,11 @@ const UNIT_ROWS_CACHE = {};
 // manually-tracked "secondary status" (see applyAdvancePosted/
 // effectiveStatusCode below) until production clears the flag.
 const ADVANCE_POSTED_CACHE = {};
+// Full movement history per VIN (vin -> array, sorted most-recent-move
+// first) — the "current" secondary status is just this array's first
+// entry, not a separate stored field, so production planning can log as
+// many dated location changes as they want instead of overwriting one.
+const ADVANCE_POSTED_MOVEMENTS = {};
 const authAreaEl = document.getElementById('authArea');
 const signinOverlay = document.getElementById('signinModalOverlay');
 const signinEmail = document.getElementById('signinEmail');
@@ -1456,11 +1467,21 @@ function applyAdvancePosted(units){
   units.forEach(u=>{
     const ap = u.vin ? ADVANCE_POSTED_CACHE[u.vin] : null;
     u.advancePosted = !!ap;
-    u.secondaryStatusCode = ap ? (ap.secondary_status || null) : null;
+    const moves = (u.vin && ADVANCE_POSTED_MOVEMENTS[u.vin]) || [];
+    u.movements = moves; // full log, most-recent-move first — the VIN card's movement table reads this
+    const latest = moves[0] || null;
+    u.secondaryStatusCode = latest ? latest.status_code : null;
     u.secondaryStage = u.secondaryStatusCode ? (ALL_STAGES.find(s=>s.code===u.secondaryStatusCode) || null) : null;
-    u.apSetAt = ap ? ap.status_set_at : null;
+    u.apSetAt = latest ? latest.moved_at : null;
     u.apFlaggedBy = ap ? ap.flagged_by : null;
   });
+}
+// Latest-dated movement log entry for a given stage code, or null — used
+// by the Overview timeline to prefer a manually-logged date over SAP's.
+function movementDateFor(u, code){
+  if(!u.advancePosted || !u.movements) return null;
+  const m = u.movements.find(m=>m.status_code===code);
+  return m ? m.moved_at : null;
 }
 // The status to actually trust for "is this unit really done with X" logic
 // (checklist auto-complete, whether the VQ panel even shows) — the real,
@@ -1911,6 +1932,18 @@ async function loadAdvancePostedCache(){
   Object.keys(ADVANCE_POSTED_CACHE).forEach(k=>delete ADVANCE_POSTED_CACHE[k]);
   (data||[]).forEach(r=>{ ADVANCE_POSTED_CACHE[r.vin] = r; });
 }
+async function loadAdvancePostedMovements(){
+  if(!sb) return;
+  const { data, error } = await sb.from('advance_posted_movements').select('*');
+  if(error){ console.error(error); return; }
+  Object.keys(ADVANCE_POSTED_MOVEMENTS).forEach(k=>delete ADVANCE_POSTED_MOVEMENTS[k]);
+  (data||[]).forEach(r=>{ (ADVANCE_POSTED_MOVEMENTS[r.vin] = ADVANCE_POSTED_MOVEMENTS[r.vin] || []).push(r); });
+  // Most-recent move first; ties (same moved_at) broken by created_at so
+  // the latest-logged entry wins as "current".
+  Object.values(ADVANCE_POSTED_MOVEMENTS).forEach(arr=>{
+    arr.sort((a,b)=> b.moved_at.localeCompare(a.moved_at) || b.created_at.localeCompare(a.created_at));
+  });
+}
 async function upsertUnitRow(vin, patch){
   if(!sb || !vin) return false;
   const { error } = await sb.from('units_data').upsert({ vin, updated_at: new Date().toISOString(), ...patch });
@@ -2069,9 +2102,9 @@ function openChecklistLog(u){
 // finished that stage yet — does this row fall back to a tap-to-record button,
 // which is what backfills the Production Report tab until the next data drop.
 const MILESTONE_ROWS = [
-  {key:"body_out", label:"Body out", erpField:"bodyFin"},
-  {key:"paint_out", label:"Paint out", erpField:"paintFin"},
-  {key:"tcf_out", label:"TCF out", erpField:"tcfFin"},
+  {key:"body_out", label:"Body out", erpField:"bodyFin", apCode:"1010"},
+  {key:"paint_out", label:"Paint out", erpField:"paintFin", apCode:"2010"},
+  {key:"tcf_out", label:"TCF out", erpField:"tcfFin", apCode:"3010"},
 ];
 function renderMilestoneRow(label, erpDate, key, tappedValue, canWrite){
   if(erpDate){
@@ -2083,18 +2116,33 @@ function renderMilestoneRow(label, erpDate, key, tappedValue, canWrite){
   }
   return `<div class="trow"><span>${label}</span><span class="d">${canWrite?`<button class="markbtn" data-mark="${key}">Mark today</button>`:'Not recorded'}</span></div>`;
 }
+// A manually-logged movement date, where one exists, takes precedence over
+// SAP's — an advance-posted unit's ERP dates are invoicing-driven and not
+// trustworthy for stages it hasn't genuinely reached yet.
 function renderMilestonesBody(row, canWrite){
   const u = currentDrawerUnit;
   const m = row || {};
-  return MILESTONE_ROWS.map(r=>renderMilestoneRow(r.label, u ? u[r.erpField] : null, r.key, m[r.key]||null, canWrite)).join('')
-    + `<div class="trow"><span>QC OK</span><span class="d">${fmtDate(u ? u.afInsp : null)}</span></div>`;
+  const rows = MILESTONE_ROWS.map(r=>{
+    const moveDate = movementDateFor(u, r.apCode);
+    if(moveDate){
+      return `<div class="trow"><span>${r.label}</span><span class="d">${fmtDate(new Date(moveDate+'T00:00:00Z'))}<span class="aptag">AP</span></span></div>`;
+    }
+    return renderMilestoneRow(r.label, u ? u[r.erpField] : null, r.key, m[r.key]||null, canWrite);
+  }).join('');
+  const qcMoveDate = movementDateFor(u, '4010');
+  const qcRow = qcMoveDate
+    ? `<div class="trow"><span>QC OK</span><span class="d">${fmtDate(new Date(qcMoveDate+'T00:00:00Z'))}<span class="aptag">AP</span></span></div>`
+    : `<div class="trow"><span>QC OK</span><span class="d">${fmtDate(u ? u.afInsp : null)}</span></div>`;
+  return rows + qcRow;
 }
 // Color/Stage/Days-in-WIP as three rows in the Overview grid's left column
 // — static per unit, so this only ever needs rendering once, in openDrawer.
 function metaRowsHtml(u){
   const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : '';
+  const stage = effectiveStage(u);
+  const stageLabel = (u.advancePosted && !u.secondaryStatusCode) ? 'Advance Posted (pending)' : (AP_STATUS_LABELS[stage.code]||stage.label);
   return `<div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc?escapeHtml(u.colorDesc):'Pending'}</span></div>
-    <div class="trow"><span>Stage</span><span class="d">${u.stage.label}</span></div>
+    <div class="trow"><span>Stage</span><span class="d">${escapeHtml(stageLabel)}${u.advancePosted?'<span class="aptag">AP</span>':''}</span></div>
     <div class="trow"><span>Days in WIP</span><span class="d">${u.wipDays==null?'—':u.wipDays+' days'}</span></div>`;
 }
 function wireMilestoneTaps(container, vin){
@@ -2279,14 +2327,31 @@ function openDrawer(vin, sr){
       </div>
       <button class="closebtn" id="closeBtn">&times;</button>
     </div>
-    ${u.advancePosted ? `<div class="apbanner">
-      <span>&#9888; Advance Posted &mdash; SAP shows <strong>${escapeHtml(u.stage.label)}</strong> for invoicing only. Set this unit's real location and when it reached it:</span>
-      <select id="apStatusSelect">
-        <option value="">&mdash; select actual location &mdash;</option>
-        ${ALL_STAGES.filter(s=>!['PLAN','USTK','SOLD'].includes(s.code)).map(s=>`<option value="${s.code}" ${u.secondaryStatusCode===s.code?'selected':''}>${AP_STATUS_LABELS[s.code]||s.label}</option>`).join('')}
-      </select>
-      <input type="date" id="apStatusDate" value="${u.apSetAt ? new Date(u.apSetAt).toISOString().slice(0,10) : todayStr()}" max="${todayStr()}">
-      ${canManageAdvancePosted() ? `<button type="button" class="markbtn" id="apStatusSave">Save</button><button type="button" class="clearbtn" id="apUnflagOne" title="Remove advance-posted flag">Unflag</button>` : ''}
+    ${u.advancePosted ? `<div class="apbanner apbanner-col">
+      <div>&#9888; Advance Posted &mdash; SAP shows <strong>${escapeHtml(u.stage.label)}</strong> for invoicing only. Movement log (most recent first):</div>
+      <table class="apmovetable">
+        <thead><tr><th>Date</th><th>Location</th><th>Set by</th>${canManageAdvancePosted()?'<th></th>':''}</tr></thead>
+        <tbody>
+          ${(u.movements && u.movements.length) ? u.movements.map(m=>{
+            const label = AP_STATUS_LABELS[m.status_code] || (ALL_STAGES.find(s=>s.code===m.status_code)||{}).label || m.status_code;
+            return `<tr>
+              <td>${fmtDate(new Date(m.moved_at+'T00:00:00Z'))}</td>
+              <td>${escapeHtml(label)}</td>
+              <td>${escapeHtml(m.set_by||'')}</td>
+              ${canManageAdvancePosted()?`<td><button type="button" class="clearbtn" data-delmove="${m.id}" title="Delete this entry">&times;</button></td>`:''}
+            </tr>`;
+          }).join('') : `<tr><td colspan="${canManageAdvancePosted()?4:3}"><span class="emptynote">No movement logged yet.</span></td></tr>`}
+        </tbody>
+      </table>
+      ${canManageAdvancePosted() ? `<div class="apaddrow">
+        <select id="apMoveStatus">
+          <option value="">&mdash; location &mdash;</option>
+          ${ALL_STAGES.filter(s=>!['PLAN','USTK','SOLD'].includes(s.code)).map(s=>`<option value="${s.code}">${AP_STATUS_LABELS[s.code]||s.label}</option>`).join('')}
+        </select>
+        <input type="date" id="apMoveDate" value="${todayStr()}" max="${todayStr()}">
+        <button type="button" class="markbtn" id="apMoveAdd">Add</button>
+        <button type="button" class="clearbtn" id="apUnflagOne" title="Remove the advance-posted flag and its movement log entirely">Unflag unit</button>
+      </div>` : ''}
     </div>` : ''}
     <div class="drawer-2col">
       <div class="drawer-main">
@@ -2328,25 +2393,38 @@ function openDrawer(vin, sr){
   document.getElementById('closeBtn').onclick = closeDrawer;
   const logBtn = document.getElementById('checklistLogBtn');
   if(logBtn) logBtn.onclick = ()=>openChecklistLog(u);
-  const apSaveBtn = document.getElementById('apStatusSave');
-  if(apSaveBtn){
-    apSaveBtn.onclick = async ()=>{
-      const code = document.getElementById('apStatusSelect').value;
+  const apMoveAddBtn = document.getElementById('apMoveAdd');
+  if(apMoveAddBtn){
+    apMoveAddBtn.onclick = async ()=>{
+      const code = document.getElementById('apMoveStatus').value;
       if(!code) return;
-      const dateVal = document.getElementById('apStatusDate').value || todayStr();
-      apSaveBtn.disabled = true;
-      const { error } = await sb.from('advance_posted_units').update({
-        secondary_status: code, status_set_by: currentSession.user.email, status_set_at: new Date(dateVal+'T00:00:00').toISOString(),
-      }).eq('vin', u.vin);
-      apSaveBtn.disabled = false;
-      if(error){ alert(`Couldn't save the actual location: ${error.message}`); return; }
-      await loadAdvancePostedCache();
+      const dateVal = document.getElementById('apMoveDate').value || todayStr();
+      apMoveAddBtn.disabled = true;
+      const { error } = await sb.from('advance_posted_movements').insert({
+        vin: u.vin, status_code: code, moved_at: dateVal, set_by: currentSession.user.email,
+      });
+      apMoveAddBtn.disabled = false;
+      if(error){ alert(`Couldn't log this movement: ${error.message}`); return; }
+      await loadAdvancePostedMovements();
       applyAdvancePosted(ALL_UNITS);
-      logActivity('advance_posted_status', `${ALL_STAGES.find(s=>s.code===code)?.label || code}`, u.vin);
+      logActivity('advance_posted_status', `${AP_STATUS_LABELS[code] || ALL_STAGES.find(s=>s.code===code)?.label || code} (${dateVal})`, u.vin);
       renderTable(); renderKPIs();
       openDrawer(u.vin, u.sr);
     };
   }
+  document.querySelectorAll('[data-delmove]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('Delete this movement log entry?')) return;
+      btn.disabled = true;
+      const { error } = await sb.from('advance_posted_movements').delete().eq('id', btn.dataset.delmove);
+      if(error){ alert(`Couldn't delete this entry: ${error.message}`); btn.disabled = false; return; }
+      await loadAdvancePostedMovements();
+      applyAdvancePosted(ALL_UNITS);
+      logActivity('advance_posted_status', 'Movement log entry deleted', u.vin);
+      renderTable(); renderKPIs();
+      openDrawer(u.vin, u.sr);
+    });
+  });
   const apUnflagBtn = document.getElementById('apUnflagOne');
   if(apUnflagBtn){
     apUnflagBtn.onclick = async ()=>{
@@ -2464,7 +2542,7 @@ async function setAdvancePosted(vins, flagged){
     if(error){ alert(`Couldn't unflag these units: ${error.message}`); return; }
     logActivity('advance_posted_unflag', `${vins.length} unit(s) unmarked advance posted`);
   }
-  await loadAdvancePostedCache();
+  await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements()]);
   applyAdvancePosted(ALL_UNITS);
   apSelectedVins.clear();
   renderTable();
@@ -3083,7 +3161,7 @@ function rebuildAllUnits(){
 async function initData(){
   if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
   const [prodRows, defRows, , manualRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase(), loadUnitRowsCache(), loadManualDefectsFromSupabase()]);
-  await loadAdvancePostedCache();
+  await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements()]);
   if(prodRows && prodRows.length){
     ROWS.length = 0; ROWS.push(...prodRows);
     rebuildAllUnits();
@@ -3564,21 +3642,22 @@ wireClearButton('clearManualDefectsBtn', 'uploadManualDefectsStatus', 'manual de
     statusEl.textContent = `Flagging ${matches.length} unit(s)…`;
     const email = currentSession.user.email;
     const now = new Date().toISOString();
-    const upsertRows = matches.map(m=>({
-      vin: m.vin,
-      flagged_by: email,
-      flagged_at: now,
-      ...(m.code ? { secondary_status: m.code, status_set_by: email, status_set_at: now } : {}),
-    }));
-    const { error } = await sb.from('advance_posted_units').upsert(upsertRows, { onConflict: 'vin' });
-    if(error){ statusEl.textContent = 'Upload failed: ' + error.message; return; }
-    await loadAdvancePostedCache();
+    const today = todayStr();
+    const flagRows = matches.map(m=>({ vin: m.vin, flagged_by: email, flagged_at: now }));
+    const { error: flagErr } = await sb.from('advance_posted_units').upsert(flagRows, { onConflict: 'vin', ignoreDuplicates: true });
+    if(flagErr){ statusEl.textContent = 'Upload failed: ' + flagErr.message; return; }
+    const withLoc = matches.filter(m=>m.code);
+    if(withLoc.length){
+      const moveRows = withLoc.map(m=>({ vin: m.vin, status_code: m.code, moved_at: today, set_by: email }));
+      const { error: moveErr } = await sb.from('advance_posted_movements').insert(moveRows);
+      if(moveErr){ statusEl.textContent = 'Flagged, but logging locations failed: ' + moveErr.message; return; }
+    }
+    await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements()]);
     applyAdvancePosted(ALL_UNITS);
     renderTable(); renderKPIs();
     if(currentDrawerUnit) renderDrawerRow(currentRowData);
-    const withLoc = matches.filter(m=>m.code).length;
-    logActivity('advance_posted_flag', `${matches.length} unit(s) flagged from file upload (${withLoc} with location set)`);
-    statusEl.textContent = `${matches.length} unit(s) flagged (${withLoc} with location set)` +
+    logActivity('advance_posted_flag', `${matches.length} unit(s) flagged from file upload (${withLoc.length} with location logged)`);
+    statusEl.textContent = `${matches.length} unit(s) flagged (${withLoc.length} with location logged as of today, ${today})` +
       (notLx3 ? `, ${notLx3} row(s) skipped (not an LX3 VIN)` : '') +
       (unmappedLocation ? `, ${unmappedLocation} location value(s) not recognized` : '') + '.';
   });

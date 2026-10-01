@@ -343,3 +343,28 @@ drop policy if exists "advance_posted_update" on public.advance_posted_units;
 create policy "advance_posted_update" on public.advance_posted_units for update using (public.can_manage_advance_posted((select auth.uid()))) with check (public.can_manage_advance_posted((select auth.uid())));
 drop policy if exists "advance_posted_delete" on public.advance_posted_units;
 create policy "advance_posted_delete" on public.advance_posted_units for delete using (public.can_manage_advance_posted((select auth.uid())));
+
+-- Full movement history, not just a single current status — production
+-- planning can log as many dated location changes as they want, and the
+-- VIN card's Overview timeline prefers these dates over SAP's when an
+-- advance-posted unit has an entry for that milestone. The "current"
+-- secondary status shown everywhere else is just the entry with the
+-- latest moved_at (ties broken by created_at), computed client-side.
+create table if not exists public.advance_posted_movements (
+  id bigint generated always as identity primary key,
+  vin text not null references public.advance_posted_units(vin) on delete cascade,
+  status_code text not null,
+  moved_at date not null,
+  set_by text,
+  created_at timestamptz not null default now()
+);
+create index if not exists advance_posted_movements_vin_idx on public.advance_posted_movements(vin);
+alter table public.advance_posted_movements enable row level security;
+drop policy if exists "advance_posted_movements_read" on public.advance_posted_movements;
+create policy "advance_posted_movements_read" on public.advance_posted_movements for select using ((select auth.role()) = 'authenticated');
+drop policy if exists "advance_posted_movements_write" on public.advance_posted_movements;
+create policy "advance_posted_movements_write" on public.advance_posted_movements for insert with check (public.can_manage_advance_posted((select auth.uid())));
+drop policy if exists "advance_posted_movements_update" on public.advance_posted_movements;
+create policy "advance_posted_movements_update" on public.advance_posted_movements for update using (public.can_manage_advance_posted((select auth.uid()))) with check (public.can_manage_advance_posted((select auth.uid())));
+drop policy if exists "advance_posted_movements_delete" on public.advance_posted_movements;
+create policy "advance_posted_movements_delete" on public.advance_posted_movements for delete using (public.can_manage_advance_posted((select auth.uid())));
