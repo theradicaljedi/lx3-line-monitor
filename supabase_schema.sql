@@ -420,7 +420,8 @@ create table if not exists public.defect_annotations (
   id bigint generated always as identity primary key,
   description_key text not null unique,
   description text,          -- original-case example text, for display
-  photo_url text,
+  photo_url text,            -- legacy single-photo column, superseded by photo_urls
+  photo_urls text[] not null default '{}',
   root_cause text,
   corrective_action text,
   status text not null default 'open' check (status in ('open','closed')),
