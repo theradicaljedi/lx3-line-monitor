@@ -1009,7 +1009,7 @@ function defectTrendShellHtml(rows){
   if(!Object.keys(defectTrendCounts).length) return '';
   defectTrendMonthLabel = Array.from(months).join(' / ');
   return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
-    <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 150" style="width:100%;min-width:480px;height:auto;max-width:520px"></svg></div>`;
+    <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 150" style="width:100%;min-width:480px;height:auto"></svg></div>`;
 }
 function renderDefectTrendChart(){
   const svg = document.getElementById('defTrendSvg');
