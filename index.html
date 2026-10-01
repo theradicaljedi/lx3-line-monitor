@@ -698,7 +698,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     <div class="panel">
       <h2>Pareto analysis &mdash; defects by defect wording</h2>
       <div class="desc">Top 15 most frequent defect descriptions, sorted by occurrence count, with a cumulative-% line &mdash; the "vital few" wordings driving most of the issues.</div>
-      <div style="overflow-x:auto"><svg id="paretoDescSvg" viewBox="0 0 700 280" style="width:100%;min-width:480px;height:auto"></svg></div>
+      <div style="overflow-x:auto"><svg id="paretoDescSvg" viewBox="0 0 700 300" style="width:100%;min-width:480px;height:auto"></svg></div>
     </div>
 
     <div class="panel">
@@ -1066,6 +1066,22 @@ function defectTrendShellHtml(rows){
     <div class="emptynote" style="margin-bottom:6px"><span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(stationLabel)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed</div>
     <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
 }
+function wrapParetoLabel(text, maxChars, maxLines){
+  const words = text.split(/\s+/);
+  const lines = [];
+  let cur = '';
+  for(const w of words){
+    const test = cur ? `${cur} ${w}` : w;
+    if(test.length > maxChars && cur){ lines.push(cur); cur = w; if(lines.length===maxLines) break; }
+    else cur = test;
+  }
+  if(lines.length < maxLines && cur) lines.push(cur);
+  if(lines.length === maxLines){
+    const last = lines[maxLines-1];
+    if(last.length > maxChars) lines[maxLines-1] = last.slice(0, maxChars-1)+'…';
+  }
+  return lines;
+}
 function renderParetoChart(svgId, items, onBarClick){
   const svg = document.getElementById(svgId);
   if(!svg) return;
@@ -1074,7 +1090,7 @@ function renderParetoChart(svgId, items, onBarClick){
   const total = sorted.reduce((s,it)=>s+it.count,0);
   let running = 0;
   const withCum = sorted.map(it=>{ running += it.count; return {...it, cumPct: running/total*100}; });
-  const W = 700, H = 280, padL = 40, padR = 40, padT = 16, padB = 70;
+  const W = 700, H = 300, padL = 40, padR = 40, padT = 16, padB = 92;
   const n = withCum.length;
   const bandW = (W-padL-padR) / n;
   const maxCount = Math.max(1, ...withCum.map(it=>it.count));
@@ -1097,8 +1113,11 @@ function renderParetoChart(svgId, items, onBarClick){
     const by = yCount(it.count);
     parts.push(`<rect class="paretobar" data-i="${i}" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${(H-padB-by).toFixed(1)}" fill="var(--bad)" style="cursor:pointer"/>`);
     parts.push(`<text x="${xCenter(i).toFixed(1)}" y="${(by-6).toFixed(1)}" font-size="11" text-anchor="middle" fill="var(--ink)" font-weight="600">${it.count}</text>`);
-    const label = it.label.length > 14 ? it.label.slice(0,13)+'…' : it.label;
-    parts.push(`<text x="${xCenter(i).toFixed(1)}" y="${(H-padB+16).toFixed(1)}" font-size="10" text-anchor="end" fill="var(--muted)" transform="rotate(-35 ${xCenter(i).toFixed(1)} ${(H-padB+16).toFixed(1)})">${escapeHtml(label)}</text>`);
+    const maxChars = Math.max(6, Math.floor(bandW / 4.3));
+    const lines = wrapParetoLabel(it.label, maxChars, 3);
+    lines.forEach((ln,li)=>{
+      parts.push(`<text x="${xCenter(i).toFixed(1)}" y="${(H-padB+13+li*9).toFixed(1)}" font-size="8" text-anchor="middle" fill="var(--muted)">${escapeHtml(ln)}</text>`);
+    });
   });
   // cumulative % line
   const pts = withCum.map((it,i)=>`${xCenter(i).toFixed(1)},${yPct(it.cumPct).toFixed(1)}`).join(' ');
