@@ -445,7 +445,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <h3>Manage users</h3>
         <button type="button" class="closebtn" id="usersModalClose">&times;</button>
       </div>
-      <div class="desc">Admin can view or edit; Editor can view and edit data but not manage accounts; Viewer can only view.</div>
+      <div class="desc">Admin can view or edit; Editor can view and edit data but not manage accounts; Viewer can only view. "Advance Posted access" is a separate toggle, independent of role, for flagging units and logging their real location.</div>
 
       <div class="section-title" style="margin-top:0">Create account</div>
       <input type="email" id="newUserEmail" placeholder="Email">
@@ -454,11 +454,11 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <select class="roleselect" id="newUserRole">
           <option value="viewer">Viewer</option>
           <option value="editor">Editor</option>
-          <option value="production_planning">Production Planning</option>
           <option value="admin">Admin</option>
         </select>
         <button type="button" class="markbtn" id="newUserSubmit">Create account</button>
       </div>
+      <label class="bu-toggle" style="margin-bottom:8px"><input type="checkbox" id="newUserApAccess"> Advance Posted access</label>
       <div id="newUserError" class="signin-error" hidden></div>
       <div id="newUserStatus" class="emptynote" hidden></div>
 
@@ -466,7 +466,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
       <div id="usersError" class="signin-error" hidden></div>
       <div class="tablewrap detail-tablewrap compact">
         <table>
-          <thead><tr><th>Email</th><th>Role</th></tr></thead>
+          <thead><tr><th>Email</th><th>Role</th><th>Advance Posted</th></tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
       </div>
@@ -717,21 +717,26 @@ let currentSession = null;
 // (can write data and manage everyone's role), editor (can write data),
 // or viewer (read-only). null until loadCurrentRole() resolves after sign-in.
 let currentRole = null;
+// A toggle, not a role — any account (whatever its base role) can be
+// separately granted this from Manage Users, independent of canWriteNow().
+let currentAdvancePostedAccess = false;
 function canWriteNow(){ return !!sb && !!currentSession && (currentRole==="admin" || currentRole==="editor"); }
-// Narrower than canWriteNow(): only admin or the production_planning role
-// can flag/unflag units as Advance Posted or change their secondary
-// status/date — a plain editor cannot, even though editor can write
-// everything else (production/defect uploads, checklist taps, issues).
-function canManageAdvancePosted(){ return !!sb && !!currentSession && (currentRole==="admin" || currentRole==="production_planning"); }
-const ROLE_LABELS = { admin:"Admin", editor:"Editor", viewer:"Viewer", production_planning:"Production Planning" };
+// Narrower than canWriteNow(): only admin, or an account with the
+// advance_posted_access toggle on, can flag/unflag units as Advance Posted
+// or change their secondary status/date — a plain editor cannot, even
+// though editor can write everything else (production/defect uploads,
+// checklist taps, issues).
+function canManageAdvancePosted(){ return !!sb && !!currentSession && (currentRole==="admin" || currentAdvancePostedAccess); }
+const ROLE_LABELS = { admin:"Admin", editor:"Editor", viewer:"Viewer" };
 // Advance Posted flagged_by/set_by records the account's ROLE, not its
-// email — "Admin" / "Production Planning", not a person's address — since
-// that's who's accountable for this workflow, not which specific login.
+// email — "Admin" / "Editor", not a person's address — since that's who's
+// accountable for this workflow, not which specific login.
 function currentRoleLabel(){ return ROLE_LABELS[currentRole] || currentRole || 'Unknown'; }
 async function loadCurrentRole(){
-  if(!sb || !currentSession){ currentRole = null; return; }
-  const { data, error } = await sb.from('user_roles').select('role').eq('user_id', currentSession.user.id).maybeSingle();
+  if(!sb || !currentSession){ currentRole = null; currentAdvancePostedAccess = false; return; }
+  const { data, error } = await sb.from('user_roles').select('role,advance_posted_access').eq('user_id', currentSession.user.id).maybeSingle();
   currentRole = (!error && data) ? data.role : 'viewer'; // viewer if the row hasn't been provisioned yet
+  currentAdvancePostedAccess = !!(data && data.advance_posted_access);
 }
 // Cache of the latest units_data row per VIN — the roster's VQ-line dots
 // read from here (renderTable/vqMiniHtml) so a checklist tap made in the
@@ -784,9 +789,9 @@ function renderAuthArea(){
     if(scopeBtnEl) scopeBtnEl.hidden = false;
     if(dailyReportBtnEl) dailyReportBtnEl.hidden = currentRole !== 'admin';
     if(uploadBtnEl) uploadBtnEl.hidden = !(canWriteNow() || canManageAdvancePosted());
-    // A production_planning-only account can open the Upload modal (for the
-    // Advance Posted slot) but shouldn't be able to touch the regular
-    // production/defect uploads — those stay gated on canWriteNow().
+    // An account with only Advance Posted access (no canWriteNow) can open
+    // the Upload modal for that slot but shouldn't be able to touch the
+    // regular production/defect uploads — those stay gated on canWriteNow().
     ['uploadProduction','uploadDefects','uploadManualDefects'].forEach(id=>{
       const el = document.getElementById(id);
       if(el) el.disabled = !canWriteNow();
@@ -1009,15 +1014,16 @@ document.getElementById('usersModalClose').addEventListener('click', closeUsersM
 usersOverlay.addEventListener('click', e=>{ if(e.target===usersOverlay) closeUsersModal(); });
 async function loadUsersModal(){
   const body = document.getElementById('usersBody');
-  body.innerHTML = '<tr><td colspan="2"><div class="emptynote">Loading&hellip;</div></td></tr>';
+  body.innerHTML = '<tr><td colspan="3"><div class="emptynote">Loading&hellip;</div></td></tr>';
   const { data, error } = await sb.from('user_roles').select('*').order('email');
   if(error){ usersError.textContent = error.message; usersError.hidden = false; body.innerHTML = ''; return; }
   body.innerHTML = data.map(r=>`<tr data-uid="${r.user_id}">
     <td>${r.email||''}</td>
     <td><select class="roleselect" data-uid="${r.user_id}" data-email="${escapeHtml(r.email||'')}">
-      ${['admin','editor','production_planning','viewer'].map(role=>`<option value="${role}" ${r.role===role?'selected':''}>${ROLE_LABELS[role]}</option>`).join('')}
+      ${['admin','editor','viewer'].map(role=>`<option value="${role}" ${r.role===role?'selected':''}>${ROLE_LABELS[role]}</option>`).join('')}
     </select></td>
-  </tr>`).join('') || '<tr><td colspan="2"><div class="emptynote">No accounts yet — sign in with each account once so its row is provisioned.</div></td></tr>';
+    <td><input type="checkbox" class="apaccesscheck" data-uid="${r.user_id}" data-email="${escapeHtml(r.email||'')}" ${r.advance_posted_access?'checked':''} title="Can flag/unflag Advance Posted units and log their real location"></td>
+  </tr>`).join('') || '<tr><td colspan="3"><div class="emptynote">No accounts yet — sign in with each account once so its row is provisioned.</div></td></tr>';
   body.querySelectorAll('.roleselect').forEach(sel=>{
     sel.addEventListener('change', async ()=>{
       const uid = sel.dataset.uid;
@@ -1031,12 +1037,26 @@ async function loadUsersModal(){
       if(uid === currentSession.user.id){ currentRole = newRole; renderAuthArea(); } // changed your own role
     });
   });
+  body.querySelectorAll('.apaccesscheck').forEach(cb=>{
+    cb.addEventListener('change', async ()=>{
+      const uid = cb.dataset.uid;
+      const granted = cb.checked;
+      cb.disabled = true;
+      const { error: updErr } = await sb.from('user_roles').update({ advance_posted_access: granted }).eq('user_id', uid);
+      cb.disabled = false;
+      if(updErr){ usersError.textContent = updErr.message; usersError.hidden = false; cb.checked = !granted; return; }
+      usersError.hidden = true;
+      logActivity('role_change', `${cb.dataset.email || uid} — Advance Posted access ${granted?'granted':'revoked'}`);
+      if(uid === currentSession.user.id){ currentAdvancePostedAccess = granted; renderAuthArea(); }
+    });
+  });
 }
 
 document.getElementById('newUserSubmit').addEventListener('click', async ()=>{
   const email = document.getElementById('newUserEmail').value.trim();
   const password = document.getElementById('newUserPassword').value;
   const role = document.getElementById('newUserRole').value;
+  const apAccess = document.getElementById('newUserApAccess').checked;
   const newUserError = document.getElementById('newUserError');
   const newUserStatus = document.getElementById('newUserStatus');
   newUserError.hidden = true; newUserStatus.hidden = true;
@@ -1057,11 +1077,12 @@ document.getElementById('newUserSubmit').addEventListener('click', async ()=>{
   btn.disabled = false;
   if(error){ newUserError.textContent = error.message; newUserError.hidden = false; return; }
   if(data && data.user){
-    await sb.from('user_roles').upsert({ user_id: data.user.id, email, role });
+    await sb.from('user_roles').upsert({ user_id: data.user.id, email, role, advance_posted_access: apAccess });
   }
   document.getElementById('newUserEmail').value = '';
   document.getElementById('newUserPassword').value = '';
   document.getElementById('newUserRole').value = 'viewer';
+  document.getElementById('newUserApAccess').checked = false;
   newUserStatus.textContent = (data && data.session)
     ? `Account created as ${role}. Share the password with them directly.`
     : `Account created as ${role}. Supabase emailed them a confirmation link — they must click it before they can sign in.`;
