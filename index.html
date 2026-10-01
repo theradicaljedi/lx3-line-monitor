@@ -1090,7 +1090,7 @@ function renderParetoChart(svgId, items, onBarClick){
   const total = sorted.reduce((s,it)=>s+it.count,0);
   let running = 0;
   const withCum = sorted.map(it=>{ running += it.count; return {...it, cumPct: running/total*100}; });
-  const W = 1050, H = 300, padL = 40, padR = 40, padT = 16, padB = 92;
+  const W = Math.max(1050, items.filter(it=>it.count>0).length * 95), H = 300, padL = 40, padR = 40, padT = 16, padB = 92;
   const n = withCum.length;
   const bandW = (W-padL-padR) / n;
   const maxCount = Math.max(1, ...withCum.map(it=>it.count));
@@ -1113,7 +1113,7 @@ function renderParetoChart(svgId, items, onBarClick){
     const by = yCount(it.count);
     parts.push(`<rect class="paretobar" data-i="${i}" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${(H-padB-by).toFixed(1)}" fill="var(--bad)" style="cursor:pointer"/>`);
     parts.push(`<text x="${xCenter(i).toFixed(1)}" y="${(by-6).toFixed(1)}" font-size="11" text-anchor="middle" fill="var(--ink)" font-weight="600">${it.count}</text>`);
-    const maxChars = Math.max(6, Math.floor(bandW / 3.6));
+    const maxChars = Math.max(6, Math.floor(bandW / 5));
     const lines = wrapParetoLabel(it.label, maxChars, 3);
     const lx = xCenter(i);
     // Each line rotates around its OWN point rather than sharing one pivot —
@@ -1131,6 +1131,8 @@ function renderParetoChart(svgId, items, onBarClick){
   withCum.forEach((it,i)=>{
     parts.push(`<circle cx="${xCenter(i).toFixed(1)}" cy="${yPct(it.cumPct).toFixed(1)}" r="3.5" fill="var(--accent)"/>`);
   });
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.style.minWidth = Math.round(W*0.73)+'px';
   svg.innerHTML = parts.join('');
   svg.querySelectorAll('.paretobar').forEach(el=>{
     el.addEventListener('click', ()=>onBarClick(withCum[+el.dataset.i]));
