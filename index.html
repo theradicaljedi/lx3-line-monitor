@@ -1452,6 +1452,10 @@ function applyAdvancePosted(units){
 // status is known-false (set early for invoicing); the raw SAP status for
 // everyone else.
 function effectiveStatusCode(u){ return u.advancePosted ? u.secondaryStatusCode : u.statusCode; }
+// Same idea but as a full ALL_STAGES entry — falls back to the raw SAP
+// stage (rather than null) so callers that just want "a label to show"
+// don't have to null-check for the advance-posted-but-pending case.
+function effectiveStage(u){ return (u.advancePosted ? u.secondaryStage : u.stage) || u.stage; }
 
 const ALL_UNITS = ROWS.map(r=>{
   const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
@@ -1467,11 +1471,17 @@ const ALL_UNITS = ROWS.map(r=>{
 applyAdvancePosted(ALL_UNITS);
 
 function currentUnits(){
-  return ALL_UNITS.filter(u=>included.has(u.statusCode));
+  return ALL_UNITS.filter(u=>included.has(effectiveStatusCode(u)));
 }
 
 // ---------- KPIs (top tiles) — driven by the Monitoring scope checkboxes, and clickable to filter the roster ----------
-const stageCount = code => ROWS.filter(r=>r[5]===code).length;
+// Counts by the EFFECTIVE status (real, manually-tracked location for an
+// advance-posted unit; raw SAP status for everyone else) — these tiles are
+// meant to show where units actually physically are, not SAP's
+// invoicing-driven status. An advance-posted unit with no secondary status
+// set yet (effectiveStatusCode returns null) contributes to no stage tile
+// until production records its real location.
+const stageCount = code => ALL_UNITS.filter(u=>effectiveStatusCode(u)===code).length;
 const kpisEl = document.getElementById('kpis');
 const KPI_CLS = {PLAN:"plan", "1000":"plan", "1010":"plan", "2000":"plan", "2010":"plan", "3000":"plan", "3010":"accent", "4000":"warn", "4010":"warn", USTK:"good", SOLD:"accent"};
 // null = no tile filter (roster shows everything in scope); "WIP" = the WIP tile; or a stage code.
@@ -1487,10 +1497,10 @@ function setTileFilter(code){
 // moved to Q-UP once step 12 (Dynamic test) is ticked off. Split the one
 // KPI tile into two so that move is visible without opening every VIN card.
 function testerLineCount(){
-  return ALL_UNITS.filter(u=>u.statusCode==="4000" && groupProgress(u,"tester")<12).length;
+  return ALL_UNITS.filter(u=>effectiveStatusCode(u)==="4000" && groupProgress(u,"tester")<12).length;
 }
 function qupStageCount(){
-  return ALL_UNITS.filter(u=>u.statusCode==="4000" && groupProgress(u,"tester")>=12).length;
+  return ALL_UNITS.filter(u=>effectiveStatusCode(u)==="4000" && groupProgress(u,"tester")>=12).length;
 }
 function renderKPIs(){
   const includedStageDefs = ALL_STAGES.filter(s=>included.has(s.code));
@@ -1546,7 +1556,7 @@ uploadModalOverlay.addEventListener('click', e=>{ if(e.target===uploadModalOverl
 
 function renderStagePicker(){
   stagePickerEl.innerHTML = ALL_STAGES.map(s=>{
-    const c = ROWS.filter(r=>r[5]===s.code).length;
+    const c = stageCount(s.code);
     const on = included.has(s.code);
     return `<label class="${on?'':'off'}"><input type="checkbox" data-code="${s.code}" ${on?'checked':''}> ${s.label} (${c})</label>`;
   }).join('') + `<button type="button" class="swal" id="resetScope">Reset to default</button>`;
@@ -1690,28 +1700,36 @@ function renderTable(){
   // else here). Otherwise, unchecking BU Stock in Scope made this checkbox
   // unable to bring USTK units back, since currentUnits() had already
   // dropped them before this function ever saw them.
-  const units = ALL_UNITS.filter(u => u.statusCode==="USTK" ? includeBU : included.has(u.statusCode));
+  const units = ALL_UNITS.filter(u => {
+    const eff = effectiveStatusCode(u);
+    return eff==="USTK" ? includeBU : included.has(eff);
+  });
   const q = searchEl.value.trim().toLowerCase();
   const colorQ = colorFilterEl.value;
   const rows = units.filter(u=>{
-    if(tileFilter==="WIP"){ if(u.statusCode==="PLAN"||u.statusCode==="USTK"||u.statusCode==="SOLD") return false; }
-    else if(tileFilter==="4000-TESTER"){ if(u.statusCode!=="4000" || groupProgress(u,"tester")>=12) return false; }
-    else if(tileFilter==="4000-QUP"){ if(u.statusCode!=="4000" || groupProgress(u,"tester")<12) return false; }
-    else if(tileFilter){ if(u.statusCode!==tileFilter) return false; }
+    const eff = effectiveStatusCode(u);
+    if(tileFilter==="WIP"){ if(eff==="PLAN"||eff==="USTK"||eff==="SOLD") return false; }
+    else if(tileFilter==="4000-TESTER"){ if(eff!=="4000" || groupProgress(u,"tester")>=12) return false; }
+    else if(tileFilter==="4000-QUP"){ if(eff!=="4000" || groupProgress(u,"tester")<12) return false; }
+    else if(tileFilter){ if(eff!==tileFilter) return false; }
     if(colorQ && u.colorDesc!==colorQ) return false;
     if(q){
-      const hay = ((u.vin||'')+' '+u.batch+' '+u.stage.label+' '+(u.colorDesc||'')).toLowerCase();
+      const hay = ((u.vin||'')+' '+u.batch+' '+effectiveStage(u).label+' '+(u.colorDesc||'')).toLowerCase();
       if(!hay.includes(q)) return false;
     }
     return true;
   });
   const stageOrder = Object.fromEntries(ALL_STAGES.map((s,i)=>[s.code,i]));
+  // Falls back to the raw SAP code so an advance-posted unit with no
+  // secondary status set yet (effectiveStatusCode returns null) still
+  // sorts somewhere sensible instead of producing NaN.
+  const sortCode = u => effectiveStatusCode(u) || u.statusCode;
   if(sortCol){
     const keyFn = {
       sr: u=>u.sr,
       vin: u=>u.vin||'',
       color: u=>u.colorDesc||u.colorCode||'',
-      stage: u=>stageOrder[u.statusCode],
+      stage: u=>stageOrder[sortCode(u)],
       vq: u=>vqTesterProgress(u),
       qup: u=>qupProgress(u),
       repair: u=>repairProgress(u),
@@ -1724,7 +1742,7 @@ function renderTable(){
     });
   } else {
     rows.sort((a,b)=>
-      (stageOrder[a.statusCode]-stageOrder[b.statusCode]) ||
+      (stageOrder[sortCode(a)]-stageOrder[sortCode(b)]) ||
       (a.vin||'').localeCompare(b.vin||'') ||
       (a.colorDesc||'').localeCompare(b.colorDesc||'')
     );
