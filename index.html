@@ -661,12 +661,6 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     </div>
 
     <div class="panel">
-      <h2>Pareto analysis &mdash; defects by station</h2>
-      <div class="desc">Stations sorted by defect count, with a cumulative-% line &mdash; the stations left of where it crosses 80% are the "vital few" driving most defects.</div>
-      <div style="overflow-x:auto"><svg id="paretoSvg" viewBox="0 0 700 280" style="width:100%;min-width:480px;height:auto"></svg></div>
-    </div>
-
-    <div class="panel">
       <h2>Trend across later-produced units <button type="button" class="collapsebtn" id="trendCollapseBtn" title="Expand">&#9656;</button></h2>
       <div id="trendPanelBody" hidden>
       <div class="desc">Inspected units split into an early subset and a later subset by production serial no. &mdash; compares average defects/unit between the two to see whether quality is improving or worsening as the line matures. Drag the slider to change where the split falls.</div>
@@ -1300,13 +1294,13 @@ function wireDefannotPhotoBox(){
   if(photoInput) photoInput.addEventListener('change', ()=>{
     const file = photoInput.files[0];
     if(!file) return;
-    const reader = new FileReader();
-    reader.onload = ()=>{
-      defannotPhotos.push({ file, _preview: reader.result });
-      defannotPhotoIdx = defannotPhotos.length - 1;
-      rerenderDefannotPhotoBox(canEdit);
-    };
-    reader.readAsDataURL(file);
+    // Synchronous (createObjectURL, not FileReader.readAsDataURL) so the
+    // photo is in defannotPhotos before this handler returns — otherwise a
+    // quick tap of Save right after picking a large phone-camera photo could
+    // fire before the async FileReader finished, silently saving zero photos.
+    defannotPhotos.push({ file, _preview: URL.createObjectURL(file) });
+    defannotPhotoIdx = defannotPhotos.length - 1;
+    rerenderDefannotPhotoBox(canEdit);
   });
   const photoClear = document.getElementById('defannotPhotoClear');
   if(photoClear) photoClear.addEventListener('click', ()=>{
@@ -3254,7 +3248,6 @@ function renderAnalysis(){
     el.addEventListener('click', open);
     el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
   });
-  renderParetoChart('paretoSvg', byStation, s=>openDefectDetail(s.label, `${s.count} defects logged at this station`, 'defects', DEFECTS.filter(d=>d[1]===s.label)));
 
   // ---- Defects by department: each bar opens that department's defects ----
   // Known departments are listed in a fixed order for readability; any other
