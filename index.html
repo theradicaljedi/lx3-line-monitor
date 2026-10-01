@@ -3159,11 +3159,15 @@ document.getElementById('reportRefresh').addEventListener('click', ()=>{ reportW
 // keeps working unchanged.
 // =====================================================================
 
+// Returns null only when there's genuinely nothing to say (not configured,
+// or the fetch itself failed) — an empty array (query succeeded, table has
+// zero rows, e.g. right after Clear) is returned as-is and IS authoritative,
+// not treated the same as "couldn't fetch, keep showing the last data".
 async function loadProductionFromSupabase(){
   if(!sb) return null;
   const { data, error } = await sb.from('production_rows').select('*');
   if(error){ console.error(error); return null; }
-  if(!data || !data.length) return null;
+  if(!data) return null;
   data.sort((a,b)=>(a.batch||'').localeCompare(b.batch||''));
   return data.map((r,i)=>[i+1, r.vin, r.batch, r.color_code, r.color_desc, r.status_code,
     r.body_fin, r.paint_fin, r.tcf_fin, r.basic_insp, r.actual_insp, r.act_fin_insp, r.ustk,
@@ -3201,7 +3205,7 @@ async function initData(){
   if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
   const [prodRows, defRows, , manualRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase(), loadUnitRowsCache(), loadManualDefectsFromSupabase()]);
   await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements()]);
-  if(prodRows && prodRows.length){
+  if(prodRows){ // null only when not configured or the fetch failed — an empty array is authoritative
     ROWS.length = 0; ROWS.push(...prodRows);
     rebuildAllUnits();
   } else {
