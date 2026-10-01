@@ -1004,7 +1004,7 @@ function defectTrendShellHtml(rows){
         <button type="button" class="collapsebtn" id="defTrendNextWeek" title="Next week">&#8250;</button>
       </span>
     </div>
-    <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 560 170" style="width:100%;min-width:420px;height:auto"></svg></div>`;
+    <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 260" style="width:100%;min-width:620px;height:auto"></svg></div>`;
 }
 function renderDefectTrendChart(){
   const svg = document.getElementById('defTrendSvg');
@@ -1013,7 +1013,7 @@ function renderDefectTrendChart(){
   document.getElementById('defTrendWeekLabel').textContent = `Day ${start}–${end}`;
   document.getElementById('defTrendPrevWeek').disabled = defectTrendWeekOffset === 0;
   document.getElementById('defTrendNextWeek').disabled = end >= 31;
-  const W = 560, H = 170, padL = 30, padR = 14, padT = 22, padB = 20;
+  const W = 820, H = 260, padL = 36, padR = 18, padT = 28, padB = 26;
   const maxCount = Math.max(1, ...Object.values(defectTrendCounts));
   const x = day => padL + ((day-start)/(end-start||1)) * (W-padL-padR);
   const y = v => H-padB - (v/maxCount) * (H-padT-padB);
@@ -1022,10 +1022,10 @@ function renderDefectTrendChart(){
   for(let t=0;t<=ticks;t++){
     const v = Math.round(maxCount*t/ticks), yy = y(v);
     parts.push(`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`);
-    parts.push(`<text x="${padL-6}" y="${(yy+3).toFixed(1)}" font-size="9" text-anchor="end" fill="var(--muted)">${v}</text>`);
+    parts.push(`<text x="${padL-6}" y="${(yy+3).toFixed(1)}" font-size="12" text-anchor="end" fill="var(--muted)">${v}</text>`);
   }
   for(let d=start; d<=end; d++){
-    parts.push(`<text x="${x(d).toFixed(1)}" y="${H-4}" font-size="9" text-anchor="middle" fill="var(--muted)">${d}</text>`);
+    parts.push(`<text x="${x(d).toFixed(1)}" y="${H-6}" font-size="12" text-anchor="middle" fill="var(--muted)">${d}</text>`);
   }
   const daysInRange = [];
   for(let d=start; d<=end; d++) if(defectTrendCounts[d]!=null) daysInRange.push(d);
@@ -1033,8 +1033,8 @@ function renderDefectTrendChart(){
     const pts = daysInRange.map(d=>`${x(d).toFixed(1)},${y(defectTrendCounts[d]).toFixed(1)}`).join(' ');
     parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
     daysInRange.forEach(d=>{
-      parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${y(defectTrendCounts[d]).toFixed(1)}" r="3" fill="var(--accent)"/>`);
-      parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(defectTrendCounts[d])-7).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--ink)" font-weight="600">${defectTrendCounts[d]}</text>`);
+      parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${y(defectTrendCounts[d]).toFixed(1)}" r="4" fill="var(--accent)"/>`);
+      parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(defectTrendCounts[d])-10).toFixed(1)}" font-size="12" text-anchor="middle" fill="var(--ink)" font-weight="600">${defectTrendCounts[d]}</text>`);
     });
   }
   svg.innerHTML = parts.join('');
