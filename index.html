@@ -172,15 +172,16 @@ tbody tr:last-child td{border-bottom:none}
    re-measures the widest cell in whatever subset a WIP tile/filter shows,
    so columns visibly shift width every time you switch tiles. */
 #unitsTable{table-layout:fixed}
-#unitsTable th:nth-child(1),#unitsTable td:nth-child(1){width:50px}
-#unitsTable th:nth-child(2),#unitsTable td:nth-child(2){width:190px}
-#unitsTable th:nth-child(3),#unitsTable td:nth-child(3){width:110px}
-#unitsTable th:nth-child(4),#unitsTable td:nth-child(4){width:160px}
-#unitsTable th:nth-child(5),#unitsTable td:nth-child(5){width:130px}
-#unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:150px}
-#unitsTable th:nth-child(7),#unitsTable td:nth-child(7){width:80px}
+#unitsTable th:nth-child(1),#unitsTable td:nth-child(1){width:34px}
+#unitsTable th:nth-child(2),#unitsTable td:nth-child(2){width:50px}
+#unitsTable th:nth-child(3),#unitsTable td:nth-child(3){width:190px}
+#unitsTable th:nth-child(4),#unitsTable td:nth-child(4){width:110px}
+#unitsTable th:nth-child(5),#unitsTable td:nth-child(5){width:160px}
+#unitsTable th:nth-child(6),#unitsTable td:nth-child(6){width:130px}
+#unitsTable th:nth-child(7),#unitsTable td:nth-child(7){width:150px}
+#unitsTable th:nth-child(8),#unitsTable td:nth-child(8){width:80px}
 #unitsTable th.sortable{white-space:nowrap}
-#unitsTable th:nth-child(8),#unitsTable td:nth-child(8){width:110px}
+#unitsTable th:nth-child(9),#unitsTable td:nth-child(9){width:110px}
 #unitsTable td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 th.sortable{cursor:pointer;user-select:none}
 th.sortable:hover{color:var(--ink)}
@@ -200,6 +201,10 @@ th.sortable:hover{color:var(--ink)}
 .badge{display:inline-block;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:600;white-space:nowrap}
 .wipdays{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
 .wipdays.high{color:var(--bad);font-weight:700}
+.aptag{font-size:8.5px;font-weight:700;letter-spacing:.03em;background:var(--warn);color:#fff;border-radius:4px;padding:1px 4px;margin-left:4px;vertical-align:1px}
+.badge.apbadge-pending{background:var(--warn-soft);color:var(--warn)}
+.apbanner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:12px}
+.apbanner select{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:12.5px}
 .vqmini{display:flex;gap:3px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
 .dot.on{background:var(--good)}
@@ -526,9 +531,16 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <label class="bu-toggle"><input type="checkbox" id="includeBU" checked> Include BU</label>
         <span class="count" id="rowcount"></span>
       </div>
+      <div class="toolbar" id="apSelectionBar" hidden>
+        <span class="count" id="apSelectionCount"></span>
+        <button type="button" class="iconbtn" id="apMarkBtn">Mark Advance Posted</button>
+        <button type="button" class="iconbtn" id="apUnmarkBtn">Unmark Advance Posted</button>
+        <button type="button" class="linkbtn" id="apClearSelection" style="width:auto;padding:0">Clear selection</button>
+      </div>
       <div class="tablewrap">
         <table id="unitsTable">
           <thead><tr>
+            <th id="apSelectAllHead" hidden><input type="checkbox" id="apSelectAll" title="Select all visible rows"></th>
             <th class="sortable" data-col="sr">S. No <span class="sortic" data-col="sr"></span></th>
             <th class="sortable" data-col="vin">VIN <span class="sortic" data-col="vin"></span></th>
             <th class="sortable" data-col="color">Color <span class="sortic" data-col="color"></span></th>
@@ -703,6 +715,13 @@ async function loadCurrentRole(){
 // read from here (renderTable/vqMiniHtml) so a checklist tap made in the
 // drawer shows up there immediately, instead of only in the open drawer.
 const UNIT_ROWS_CACHE = {};
+// Cache of advance_posted_units rows, keyed by VIN — month-end, production
+// advance-posts WIP units in SAP for invoicing, which makes the uploaded
+// Excel show them as QC OK/done even though they're physically still
+// mid-process. A unit in this cache has its SAP status overridden by a
+// manually-tracked "secondary status" (see applyAdvancePosted/
+// effectiveStatusCode below) until production clears the flag.
+const ADVANCE_POSTED_CACHE = {};
 const authAreaEl = document.getElementById('authArea');
 const signinOverlay = document.getElementById('signinModalOverlay');
 const signinEmail = document.getElementById('signinEmail');
@@ -1303,7 +1322,7 @@ function seedChecklist(vinSuffix){
   return state;
 }
 // A unit's sub-stage tracker only starts once it's reached Inspection In.
-function reachedInspection(u){ return ["4000","4010","USTK","SOLD"].includes(u.statusCode); }
+function reachedInspection(u){ return ["4000","4010","USTK","SOLD"].includes(effectiveStatusCode(u)); }
 
 // All Excel Status Text stages in process order. The checkboxes above let the
 // viewer choose which of these count as "in monitoring" (funnel/roster/VQ panels);
@@ -1402,6 +1421,28 @@ function computeWipDays(statusCode, dates){
   return Math.floor((TODAY - xl(d)) / 86400000);
 }
 
+// Attaches advance-posted enrichment to a list of unit objects, from
+// whatever's currently in ADVANCE_POSTED_CACHE. Called after building
+// ALL_UNITS (here, and again in rebuildAllUnits after a fresh upload) and
+// whenever the cache itself changes (flagging/unflagging units, or setting
+// a secondary status) — cheap to re-run since it's a plain per-unit lookup.
+function applyAdvancePosted(units){
+  units.forEach(u=>{
+    const ap = u.vin ? ADVANCE_POSTED_CACHE[u.vin] : null;
+    u.advancePosted = !!ap;
+    u.secondaryStatusCode = ap ? (ap.secondary_status || null) : null;
+    u.secondaryStage = u.secondaryStatusCode ? (ALL_STAGES.find(s=>s.code===u.secondaryStatusCode) || null) : null;
+    u.apSetAt = ap ? ap.status_set_at : null;
+    u.apFlaggedBy = ap ? ap.flagged_by : null;
+  });
+}
+// The status to actually trust for "is this unit really done with X" logic
+// (checklist auto-complete, whether the VQ panel even shows) — the real,
+// manually-tracked status for an advance-posted unit, since its raw SAP
+// status is known-false (set early for invoicing); the raw SAP status for
+// everyone else.
+function effectiveStatusCode(u){ return u.advancePosted ? u.secondaryStatusCode : u.statusCode; }
+
 const ALL_UNITS = ROWS.map(r=>{
   const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
   const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
@@ -1413,6 +1454,7 @@ const ALL_UNITS = ROWS.map(r=>{
     tcfStart:xl(tcfStart), tcfFin:xl(tcfFin),
     biInsp:xl(bi), aiInsp:xl(ai), afInsp:xl(af), ustk:xl(us), wipDays};
 });
+applyAdvancePosted(ALL_UNITS);
 
 function currentUnits(){
   return ALL_UNITS.filter(u=>included.has(u.statusCode));
@@ -1572,6 +1614,12 @@ document.querySelectorAll('#unitsTable th.sortable').forEach(th=>{
 });
 
 function stageBadgeHtml(u){
+  if(u.advancePosted){
+    if(u.secondaryStage){
+      return `<span class="badge apbadge" style="background:color-mix(in srgb, ${u.secondaryStage.color} 16%, transparent);color:${u.secondaryStage.color}" title="SAP shows ${escapeHtml(u.stage.label)} (advance posted for invoicing) — actual location tracked manually">${escapeHtml(u.secondaryStage.label)}<span class="aptag">AP</span></span>`;
+    }
+    return `<span class="badge apbadge-pending" title="SAP shows ${escapeHtml(u.stage.label)} (advance posted for invoicing) — actual location not yet set">Advance Posted<span class="aptag">AP</span></span>`;
+  }
   return `<span class="badge" style="background:color-mix(in srgb, ${u.stage.color} 16%, transparent);color:${u.stage.color}">${u.stage.label}</span>`;
 }
 function checklistStateFor(u){
@@ -1583,8 +1631,11 @@ function checklistStateFor(u){
   // Line 1/2 Repair, and VQ final inspection — is inherently done, so show
   // every dot filled regardless of any gaps in the recorded per-step flags
   // (e.g. historical bulk-import data, or steps that were never tapped
-  // individually before the unit moved on).
-  if(["4010","USTK","SOLD"].includes(u.statusCode)){
+  // individually before the unit moved on). Gated on the EFFECTIVE status —
+  // an advance-posted unit's raw SAP code is known-false, so this only
+  // fires once production has manually confirmed the real status is one
+  // of these.
+  if(["4010","USTK","SOLD"].includes(effectiveStatusCode(u))){
     const merged = {...state};
     CHECKLIST_ITEMS.forEach(it=>{ merged[it.key] = true; });
     return merged;
@@ -1614,6 +1665,13 @@ function qupMiniHtml(u){ return groupMiniHtml(u, "final", "VQ final inspection s
 function repairProgress(u){ return groupProgress(u, "repair"); }
 function repairMiniHtml(u){ return groupMiniHtml(u, "repair", "Line 1 / Line 2 Repair steps", "dot-blue"); }
 
+const apSelectedVins = new Set();
+function updateApSelectionUI(){
+  const bar = document.getElementById('apSelectionBar');
+  const n = apSelectedVins.size;
+  bar.hidden = !canWriteNow() || n===0;
+  document.getElementById('apSelectionCount').textContent = `${n} selected`;
+}
 function renderTable(){
   // "Include BU" is a dedicated, standalone control for BU Stock units in
   // this table — it wins regardless of whether "BU Stock" happens to be
@@ -1662,10 +1720,20 @@ function renderTable(){
   }
   updateSortIcons();
   rowcountEl.textContent = rows.length + ' / ' + units.length + ' units in scope';
+  const canSelect = canWriteNow();
+  document.getElementById('apSelectAllHead').hidden = !canSelect;
+  const visibleVins = new Set(rows.map(u=>u.vin).filter(Boolean));
+  // Drop anything selected that's scrolled out of the current filter/scope
+  // so the count never silently includes rows you can no longer see.
+  [...apSelectedVins].forEach(v=>{ if(!visibleVins.has(v)) apSelectedVins.delete(v); });
   tbody.innerHTML = rows.map((u,i)=>{
     const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : `<span class="swatch" style="background:transparent;border-style:dashed"></span>`;
     const wip = u.wipDays==null ? '<span class="emptynote">&mdash;</span>' : `<span class="wipdays ${u.wipDays>25?'high':''}">${u.wipDays} d</span>`;
+    const checkCell = canSelect
+      ? `<td><input type="checkbox" class="apRowCheck" data-vin="${escapeHtml(u.vin||'')}" ${apSelectedVins.has(u.vin)?'checked':''} ${u.vin?'':'disabled'}></td>`
+      : `<td hidden></td>`;
     return `<tr data-vin="${escapeHtml(u.vin||'')}" data-sr="${u.sr}">
+      ${checkCell}
       <td>${i+1}</td>
       <td>${u.vin ? `<span class="vin">${escapeHtml(u.vin)}</span>` : `<span class="emptynote">not yet assigned</span>`}</td>
       <td>${swatch}${u.colorCode?escapeHtml(u.colorCode):'<span class="emptynote">pending</span>'}</td>
@@ -1675,7 +1743,16 @@ function renderTable(){
       <td>${qupMiniHtml(u)}</td>
       <td>${wip}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="8"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
+  }).join('') || `<tr><td colspan="9"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
+  tbody.querySelectorAll('.apRowCheck').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) apSelectedVins.add(cb.dataset.vin); else apSelectedVins.delete(cb.dataset.vin);
+      updateApSelectionUI();
+    });
+  });
+  const selectAll = document.getElementById('apSelectAll');
+  selectAll.checked = canSelect && visibleVins.size>0 && [...visibleVins].every(v=>apSelectedVins.has(v));
+  updateApSelectionUI();
 }
 searchEl.addEventListener('input', renderTable);
 stageFilterEl.addEventListener('change', ()=>{
@@ -1781,6 +1858,13 @@ async function loadUnitRowsCache(){
   if(error){ console.error(error); return; }
   Object.keys(UNIT_ROWS_CACHE).forEach(k=>delete UNIT_ROWS_CACHE[k]);
   (data||[]).forEach(r=>{ UNIT_ROWS_CACHE[r.vin] = r; });
+}
+async function loadAdvancePostedCache(){
+  if(!sb) return;
+  const { data, error } = await sb.from('advance_posted_units').select('*');
+  if(error){ console.error(error); return; }
+  Object.keys(ADVANCE_POSTED_CACHE).forEach(k=>delete ADVANCE_POSTED_CACHE[k]);
+  (data||[]).forEach(r=>{ ADVANCE_POSTED_CACHE[r.vin] = r; });
 }
 async function upsertUnitRow(vin, patch){
   if(!sb || !vin) return false;
@@ -2150,6 +2234,14 @@ function openDrawer(vin, sr){
       </div>
       <button class="closebtn" id="closeBtn">&times;</button>
     </div>
+    ${u.advancePosted ? `<div class="apbanner">
+      <span>&#9888; Advance Posted &mdash; SAP shows <strong>${escapeHtml(u.stage.label)}</strong> for invoicing only. Set this unit's real location:</span>
+      <select id="apStatusSelect">
+        <option value="">&mdash; select actual location &mdash;</option>
+        ${ALL_STAGES.filter(s=>s.code!=='PLAN').map(s=>`<option value="${s.code}" ${u.secondaryStatusCode===s.code?'selected':''}>${s.label}</option>`).join('')}
+      </select>
+      ${canWriteNow() ? `<button type="button" class="markbtn" id="apStatusSave">Save</button><button type="button" class="clearbtn" id="apUnflagOne" title="Remove advance-posted flag">Unflag</button>` : ''}
+    </div>` : ''}
     <div class="drawer-2col">
       <div class="drawer-main">
         <div class="section-title" style="margin-top:0">Overview</div>
@@ -2190,6 +2282,33 @@ function openDrawer(vin, sr){
   document.getElementById('closeBtn').onclick = closeDrawer;
   const logBtn = document.getElementById('checklistLogBtn');
   if(logBtn) logBtn.onclick = ()=>openChecklistLog(u);
+  const apSaveBtn = document.getElementById('apStatusSave');
+  if(apSaveBtn){
+    apSaveBtn.onclick = async ()=>{
+      const code = document.getElementById('apStatusSelect').value;
+      if(!code) return;
+      apSaveBtn.disabled = true;
+      const { error } = await sb.from('advance_posted_units').update({
+        secondary_status: code, status_set_by: currentSession.user.email, status_set_at: new Date().toISOString(),
+      }).eq('vin', u.vin);
+      apSaveBtn.disabled = false;
+      if(error){ alert(`Couldn't save the actual location: ${error.message}`); return; }
+      await loadAdvancePostedCache();
+      applyAdvancePosted(ALL_UNITS);
+      logActivity('advance_posted_status', `${ALL_STAGES.find(s=>s.code===code)?.label || code}`, u.vin);
+      renderTable(); renderKPIs();
+      openDrawer(u.vin, u.sr);
+    };
+  }
+  const apUnflagBtn = document.getElementById('apUnflagOne');
+  if(apUnflagBtn){
+    apUnflagBtn.onclick = async ()=>{
+      if(!confirm('Remove the advance-posted flag for this unit? Its SAP status will be trusted again.')) return;
+      apUnflagBtn.disabled = true;
+      const ok = await setAdvancePosted([u.vin], false);
+      if(currentDrawerUnit && currentDrawerUnit.vin===u.vin) openDrawer(u.vin, u.sr);
+    };
+  }
   overlay.classList.add('open');
 
   if(unsubRow){ try{unsubRow();}catch(e){} unsubRow=null; }
@@ -2268,9 +2387,50 @@ function openDrawer(vin, sr){
 }
 
 tbody.addEventListener('click', e=>{
+  if(e.target.closest('input[type=checkbox]')) return; // let the selection checkbox handle its own click
   const tr = e.target.closest('tr');
   if(!tr) return;
   openDrawer(tr.dataset.vin, +tr.dataset.sr);
+});
+document.getElementById('apSelectAll').addEventListener('click', e=>e.stopPropagation());
+document.getElementById('apSelectAll').addEventListener('change', e=>{
+  tbody.querySelectorAll('.apRowCheck:not(:disabled)').forEach(cb=>{
+    cb.checked = e.target.checked;
+    if(e.target.checked) apSelectedVins.add(cb.dataset.vin); else apSelectedVins.delete(cb.dataset.vin);
+  });
+  updateApSelectionUI();
+});
+document.getElementById('apClearSelection').addEventListener('click', ()=>{
+  apSelectedVins.clear();
+  renderTable();
+});
+async function setAdvancePosted(vins, flagged){
+  if(!sb || !vins.length) return;
+  const email = currentSession && currentSession.user.email;
+  if(flagged){
+    const rows = vins.map(vin=>({ vin, flagged_by: email, flagged_at: new Date().toISOString() }));
+    const { error } = await sb.from('advance_posted_units').upsert(rows, { onConflict: 'vin', ignoreDuplicates: true });
+    if(error){ alert(`Couldn't flag these units: ${error.message}`); return; }
+    logActivity('advance_posted_flag', `${vins.length} unit(s) marked advance posted`);
+  } else {
+    const { error } = await sb.from('advance_posted_units').delete().in('vin', vins);
+    if(error){ alert(`Couldn't unflag these units: ${error.message}`); return; }
+    logActivity('advance_posted_unflag', `${vins.length} unit(s) unmarked advance posted`);
+  }
+  await loadAdvancePostedCache();
+  applyAdvancePosted(ALL_UNITS);
+  apSelectedVins.clear();
+  renderTable();
+  renderKPIs();
+  if(currentDrawerUnit) renderDrawerRow(currentRowData);
+}
+document.getElementById('apMarkBtn').addEventListener('click', ()=>{
+  if(!confirm(`Mark ${apSelectedVins.size} unit(s) as Advance Posted? Their SAP status will be treated as invoicing-only until a real location is set.`)) return;
+  setAdvancePosted([...apSelectedVins], true);
+});
+document.getElementById('apUnmarkBtn').addEventListener('click', ()=>{
+  if(!confirm(`Unmark ${apSelectedVins.size} unit(s) as Advance Posted? Their SAP status will be trusted again.`)) return;
+  setAdvancePosted([...apSelectedVins], false);
 });
 
 // ---------- tabs ----------
@@ -2310,6 +2470,9 @@ const ACTION_LABELS = {
   issue_resolve: 'Issue resolved',
   issue_reopen: 'Issue reopened',
   checklist_count_clear: 'Repeat count cleared',
+  advance_posted_flag: 'Advance posted',
+  advance_posted_unflag: 'Advance posted flag removed',
+  advance_posted_status: 'Advance-posted location updated',
   role_change: 'Role changed',
   account_created: 'Account created',
 };
@@ -2868,13 +3031,17 @@ function rebuildAllUnits(){
   });
   ALL_UNITS.length = 0;
   ALL_UNITS.push(...mapped);
+  applyAdvancePosted(ALL_UNITS);
 }
 async function initData(){
   if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
   const [prodRows, defRows, , manualRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase(), loadUnitRowsCache(), loadManualDefectsFromSupabase()]);
+  await loadAdvancePostedCache();
   if(prodRows && prodRows.length){
     ROWS.length = 0; ROWS.push(...prodRows);
     rebuildAllUnits();
+  } else {
+    applyAdvancePosted(ALL_UNITS);
   }
   if(defRows || manualRows){
     DEFECTS.length = 0;
