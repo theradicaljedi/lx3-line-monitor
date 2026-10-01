@@ -33,8 +33,18 @@ create table if not exists public.user_roles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   email text,
   role text not null default 'viewer' check (role in ('admin','editor','viewer')),
+  -- A toggle, not a role: any existing account (whatever its role) can be
+  -- separately granted the ability to flag/unflag units as Advance Posted
+  -- and set their secondary status/date (see advance_posted_units below),
+  -- without being given general write access (uploads, checklist taps,
+  -- issues) the way editor/admin have. Admins always have this regardless
+  -- of the flag's value (see can_manage_advance_posted below).
+  advance_posted_access boolean not null default false,
   updated_at timestamptz not null default now()
 );
+alter table public.user_roles add column if not exists advance_posted_access boolean not null default false;
+alter table public.user_roles drop constraint if exists user_roles_role_check;
+alter table public.user_roles add constraint user_roles_role_check check (role in ('admin','editor','viewer'));
 alter table public.user_roles enable row level security;
 
 -- security definer so this can check user_roles without the calling
@@ -53,10 +63,18 @@ create or replace function public.has_write_access(uid uuid) returns boolean
 language sql security definer stable set search_path = '' as $$
   select exists(select 1 from public.user_roles where user_id = uid and role in ('admin','editor'));
 $$;
+-- Admin, or any account with the advance_posted_access toggle on — see
+-- advance_posted_units below for why this is narrower than has_write_access.
+create or replace function public.can_manage_advance_posted(uid uuid) returns boolean
+language sql security definer stable set search_path = '' as $$
+  select exists(select 1 from public.user_roles where user_id = uid and (role = 'admin' or advance_posted_access));
+$$;
 revoke execute on function public.is_admin(uuid) from public;
 revoke execute on function public.has_write_access(uuid) from public;
+revoke execute on function public.can_manage_advance_posted(uuid) from public;
 grant execute on function public.is_admin(uuid) to authenticated;
 grant execute on function public.has_write_access(uuid) to authenticated;
+grant execute on function public.can_manage_advance_posted(uuid) to authenticated;
 
 -- (select auth.uid()) rather than a bare auth.uid() — lets Postgres evaluate
 -- it once per query (initplan) instead of once per row; same reasoning
@@ -297,3 +315,61 @@ drop policy if exists "activity_log_write" on public.activity_log;
 create policy "activity_log_write" on public.activity_log for insert with check (public.has_write_access((select auth.uid())));
 drop policy if exists "activity_log_delete" on public.activity_log;
 create policy "activity_log_delete" on public.activity_log for delete using (public.is_admin((select auth.uid())));
+
+-- =====================================================================
+-- Advance Posted units — month-end, production bulk-advance-posts WIP
+-- units in SAP for invoicing, which makes the uploaded production Excel
+-- show them as Sold/BU Stock even though they're physically still
+-- mid-process. A unit flagged here has its SAP status overridden in the
+-- app by this manually-tracked "secondary status" (one of the regular
+-- stage codes — Body/Paint/TCF in/out, Inspection in/out) until someone
+-- un-flags it. Flagging/unflagging and setting the secondary status are
+-- gated on can_manage_advance_posted — admin, or any account with the
+-- advance_posted_access toggle on, NOT the usual editor write access —
+-- since this is a distinct, more sensitive workflow than ordinary data
+-- entry.
+-- Everyone signed in can still READ it (it drives what every viewer sees
+-- on the Units table/VIN card).
+-- =====================================================================
+create table if not exists public.advance_posted_units (
+  vin text primary key,
+  secondary_status text,       -- a code from the app's stage list (Tester Line/Q-UP/Repair/etc.) that production sets to track where the unit really is
+  flagged_by text,
+  flagged_at timestamptz not null default now(),
+  status_set_by text,
+  status_set_at timestamptz
+);
+alter table public.advance_posted_units enable row level security;
+drop policy if exists "advance_posted_read" on public.advance_posted_units;
+create policy "advance_posted_read" on public.advance_posted_units for select using ((select auth.role()) = 'authenticated');
+drop policy if exists "advance_posted_write" on public.advance_posted_units;
+create policy "advance_posted_write" on public.advance_posted_units for insert with check (public.can_manage_advance_posted((select auth.uid())));
+drop policy if exists "advance_posted_update" on public.advance_posted_units;
+create policy "advance_posted_update" on public.advance_posted_units for update using (public.can_manage_advance_posted((select auth.uid()))) with check (public.can_manage_advance_posted((select auth.uid())));
+drop policy if exists "advance_posted_delete" on public.advance_posted_units;
+create policy "advance_posted_delete" on public.advance_posted_units for delete using (public.can_manage_advance_posted((select auth.uid())));
+
+-- Full movement history, not just a single current status — production
+-- planning can log as many dated location changes as they want, and the
+-- VIN card's Overview timeline prefers these dates over SAP's when an
+-- advance-posted unit has an entry for that milestone. The "current"
+-- secondary status shown everywhere else is just the entry with the
+-- latest moved_at (ties broken by created_at), computed client-side.
+create table if not exists public.advance_posted_movements (
+  id bigint generated always as identity primary key,
+  vin text not null references public.advance_posted_units(vin) on delete cascade,
+  status_code text not null,
+  moved_at date not null,
+  set_by text,
+  created_at timestamptz not null default now()
+);
+create index if not exists advance_posted_movements_vin_idx on public.advance_posted_movements(vin);
+alter table public.advance_posted_movements enable row level security;
+drop policy if exists "advance_posted_movements_read" on public.advance_posted_movements;
+create policy "advance_posted_movements_read" on public.advance_posted_movements for select using ((select auth.role()) = 'authenticated');
+drop policy if exists "advance_posted_movements_write" on public.advance_posted_movements;
+create policy "advance_posted_movements_write" on public.advance_posted_movements for insert with check (public.can_manage_advance_posted((select auth.uid())));
+drop policy if exists "advance_posted_movements_update" on public.advance_posted_movements;
+create policy "advance_posted_movements_update" on public.advance_posted_movements for update using (public.can_manage_advance_posted((select auth.uid()))) with check (public.can_manage_advance_posted((select auth.uid())));
+drop policy if exists "advance_posted_movements_delete" on public.advance_posted_movements;
+create policy "advance_posted_movements_delete" on public.advance_posted_movements for delete using (public.can_manage_advance_posted((select auth.uid())));
