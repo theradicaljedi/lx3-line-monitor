@@ -224,6 +224,14 @@ th.sortable:hover{color:var(--ink)}
 .photonavbtn.right{right:4px}
 .photonavbtn:hover{background:rgba(0,0,0,.75)}
 .photonavcount{position:absolute;bottom:4px;right:6px;font-size:10px;color:#fff;background:rgba(0,0,0,.55);padding:1px 6px;border-radius:10px}
+.defannot-photobox img{cursor:zoom-in}
+.photo-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:200;display:flex;align-items:center;justify-content:center}
+.photo-lightbox img{max-width:90vw;max-height:85vh;object-fit:contain;border-radius:4px}
+.lightbox-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);color:#fff;border:none;width:36px;height:36px;border-radius:50%;font-size:20px;cursor:pointer}
+.lightbox-nav{width:44px;height:44px;font-size:22px}
+.lightbox-nav.left{left:16px}
+.lightbox-nav.right{right:16px}
+.lightbox-count{bottom:20px;right:50%;transform:translateX(50%);font-size:13px;padding:3px 10px}
 .defannot-statusrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:2px}
 @media(max-width:520px){
   .defannot-photo{flex:1 1 100%;border-right:none;border-bottom:1px solid var(--line);padding-right:0;padding-bottom:14px}
@@ -526,6 +534,14 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         </table>
       </div>
     </div>
+  </div>
+
+  <div id="photoLightbox" class="photo-lightbox" hidden>
+    <button type="button" class="closebtn lightbox-close" id="photoLightboxClose">&times;</button>
+    <button type="button" class="photonavbtn lightbox-nav left" id="photoLightboxPrev" title="Previous photo">&#8249;</button>
+    <img id="photoLightboxImg" src="" alt="Defect photo (large preview)">
+    <button type="button" class="photonavbtn lightbox-nav right" id="photoLightboxNext" title="Next photo">&#8250;</button>
+    <span class="photonavcount lightbox-count" id="photoLightboxCount"></span>
   </div>
 
   <div id="scanOverlay" class="signin-overlay" hidden>
@@ -1151,12 +1167,48 @@ function rerenderDefannotPhotoBox(canEdit){
   box.outerHTML = defannotPhotoBoxHtml(canEdit);
   wireDefannotPhotoBox();
 }
+const photoLightbox = document.getElementById('photoLightbox');
+function renderPhotoLightbox(){
+  const n = defannotPhotos.length;
+  if(!n){ photoLightbox.hidden = true; return; }
+  const cur = defannotPhotos[defannotPhotoIdx];
+  document.getElementById('photoLightboxImg').src = cur.file ? cur._preview : cur.url;
+  document.getElementById('photoLightboxCount').textContent = n > 1 ? `${defannotPhotoIdx+1} / ${n}` : '';
+  document.getElementById('photoLightboxPrev').hidden = n <= 1;
+  document.getElementById('photoLightboxNext').hidden = n <= 1;
+}
+function openPhotoLightbox(){
+  if(!defannotPhotos.length) return;
+  photoLightbox.hidden = false;
+  renderPhotoLightbox();
+}
+function closePhotoLightbox(){ photoLightbox.hidden = true; }
+document.getElementById('photoLightboxClose').addEventListener('click', closePhotoLightbox);
+photoLightbox.addEventListener('click', e=>{ if(e.target===photoLightbox) closePhotoLightbox(); });
+document.getElementById('photoLightboxPrev').addEventListener('click', ()=>{
+  defannotPhotoIdx = (defannotPhotoIdx - 1 + defannotPhotos.length) % defannotPhotos.length;
+  renderPhotoLightbox();
+  rerenderDefannotPhotoBox(canWriteNow());
+});
+document.getElementById('photoLightboxNext').addEventListener('click', ()=>{
+  defannotPhotoIdx = (defannotPhotoIdx + 1) % defannotPhotos.length;
+  renderPhotoLightbox();
+  rerenderDefannotPhotoBox(canWriteNow());
+});
+document.addEventListener('keydown', e=>{
+  if(photoLightbox.hidden) return;
+  if(e.key === 'Escape') closePhotoLightbox();
+  if(e.key === 'ArrowLeft') document.getElementById('photoLightboxPrev').click();
+  if(e.key === 'ArrowRight') document.getElementById('photoLightboxNext').click();
+});
 function wireDefannotPhotoBox(){
   const canEdit = canWriteNow();
   const prev = document.getElementById('defannotPhotoPrev');
   if(prev) prev.addEventListener('click', ()=>{ defannotPhotoIdx = (defannotPhotoIdx - 1 + defannotPhotos.length) % defannotPhotos.length; rerenderDefannotPhotoBox(canEdit); });
   const next = document.getElementById('defannotPhotoNext');
   if(next) next.addEventListener('click', ()=>{ defannotPhotoIdx = (defannotPhotoIdx + 1) % defannotPhotos.length; rerenderDefannotPhotoBox(canEdit); });
+  const img = document.getElementById('defannotPhotoImg');
+  if(img) img.addEventListener('click', ()=>openPhotoLightbox());
   if(!canEdit) return;
   const photoInput = document.getElementById('defannotPhotoInput');
   if(photoInput) photoInput.addEventListener('change', ()=>{
