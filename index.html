@@ -995,32 +995,26 @@ function openDefectDetail(title, desc, mode, rows, annotKey){
 // position, same simplification the original per-month chart made by
 // construction (it only ever covered a single month at a time).
 let defectTrendCounts = {};
-let defectTrendWeekOffset = 0;
+let defectTrendMonthLabel = '';
 function defectTrendShellHtml(rows){
   defectTrendCounts = {};
+  const months = new Set();
   (rows||[]).forEach(d=>{
     if(!d[3]) return;
-    const day = xl(d[3]).getDate();
+    const dt = xl(d[3]);
+    const day = dt.getDate();
     defectTrendCounts[day] = (defectTrendCounts[day]||0) + 1;
+    months.add(dt.toLocaleString('en-US',{month:'long',year:'numeric'}));
   });
   if(!Object.keys(defectTrendCounts).length) return '';
-  defectTrendWeekOffset = 0;
-  return `<div class="section-title withbtn" style="margin-top:0">Occurrences by day of month
-      <span style="display:flex;align-items:center;gap:8px">
-        <button type="button" class="collapsebtn" id="defTrendPrevWeek" title="Previous week">&#8249;</button>
-        <span class="emptynote" id="defTrendWeekLabel" style="font-style:normal"></span>
-        <button type="button" class="collapsebtn" id="defTrendNextWeek" title="Next week">&#8250;</button>
-      </span>
-    </div>
+  defectTrendMonthLabel = Array.from(months).join(' / ');
+  return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
     <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 150" style="width:100%;min-width:480px;height:auto;max-width:520px"></svg></div>`;
 }
 function renderDefectTrendChart(){
   const svg = document.getElementById('defTrendSvg');
   if(!svg) return;
-  const start = defectTrendWeekOffset*14 + 1, end = Math.min(start+13, 31);
-  document.getElementById('defTrendWeekLabel').textContent = `Day ${start}–${end}`;
-  document.getElementById('defTrendPrevWeek').disabled = defectTrendWeekOffset === 0;
-  document.getElementById('defTrendNextWeek').disabled = end >= 31;
+  const start = 1, end = 31;
   const W = 820, H = 150, padL = 36, padR = 18, padT = 22, padB = 24;
   const maxCount = Math.max(1, ...Object.values(defectTrendCounts));
   const x = day => padL + ((day-start)/(end-start||1)) * (W-padL-padR);
@@ -1047,10 +1041,6 @@ function renderDefectTrendChart(){
   }
   svg.innerHTML = parts.join('');
 }
-document.getElementById('defectAnnotationPanel').addEventListener('click', e=>{
-  if(e.target.id==='defTrendPrevWeek' && defectTrendWeekOffset>0){ defectTrendWeekOffset--; renderDefectTrendChart(); }
-  if(e.target.id==='defTrendNextWeek' && defectTrendWeekOffset*14+15<=31){ defectTrendWeekOffset++; renderDefectTrendChart(); }
-});
 let defannotPhotos = []; // {url} for existing, {file} for newly chosen, pending upload on Save
 let defannotPhotoIdx = 0;
 function defannotPhotoBoxHtml(canEdit){
