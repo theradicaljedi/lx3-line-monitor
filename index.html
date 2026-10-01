@@ -1019,7 +1019,7 @@ function defectTrendShellHtml(rows){
   });
   Object.keys(vinsByDay).forEach(day=>{ defectTrendThroughput[day] = vinsByDay[day].size; });
   return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
-    <div class="emptynote" style="margin-bottom:6px">Label shows defects / units passed ${escapeHtml(station)} that day</div>
+    <div class="emptynote" style="margin-bottom:6px">N = units that passed ${escapeHtml(station)} that day</div>
     <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
 }
 function renderDefectTrendChart(){
@@ -1047,11 +1047,10 @@ function renderDefectTrendChart(){
     parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
     daysInRange.forEach(d=>{
       const passed = defectTrendThroughput[d];
-      const label = passed ? `${defectTrendCounts[d]}/${passed}` : `${defectTrendCounts[d]}`;
-      const rate = passed ? ` (${Math.round(defectTrendCounts[d]/passed*100)}%)` : '';
-      parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${y(defectTrendCounts[d]).toFixed(1)}" r="4" fill="var(--accent)"/>`);
-      parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(defectTrendCounts[d])-16).toFixed(1)}" font-size="11" text-anchor="middle" fill="var(--ink)" font-weight="600">${label}</text>`);
-      if(rate) parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(defectTrendCounts[d])-5).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--muted)">${rate}</text>`);
+      const cy = y(defectTrendCounts[d]);
+      parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="var(--accent)"/>`);
+      parts.push(`<text x="${x(d).toFixed(1)}" y="${(cy-10).toFixed(1)}" font-size="12" text-anchor="middle" fill="var(--ink)" font-weight="600">${defectTrendCounts[d]}</text>`);
+      if(passed) parts.push(`<text x="${x(d).toFixed(1)}" y="${(cy+16).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--muted)">N=${passed}</text>`);
     });
   }
   svg.innerHTML = parts.join('');
