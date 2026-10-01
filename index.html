@@ -706,6 +706,12 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     </div>
 
     <div class="panel">
+      <h2>Pareto analysis &mdash; defects by defect wording</h2>
+      <div class="desc">Top 15 most frequent defect descriptions, sorted by occurrence count, with a cumulative-% line &mdash; the "vital few" wordings driving most of the issues.</div>
+      <div style="overflow-x:auto"><svg id="paretoDescSvg" viewBox="0 0 700 280" style="width:100%;min-width:480px;height:auto"></svg></div>
+    </div>
+
+    <div class="panel">
       <h2>Defects by unit</h2>
       <div class="tablewrap compact">
         <table>
@@ -1073,8 +1079,8 @@ function defectTrendShellHtml(rows){
     <div class="emptynote" style="margin-bottom:6px"><span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(station)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed</div>
     <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
 }
-function renderParetoChart(items, onBarClick){
-  const svg = document.getElementById('paretoSvg');
+function renderParetoChart(svgId, items, onBarClick){
+  const svg = document.getElementById(svgId);
   if(!svg) return;
   const sorted = items.filter(it=>it.count>0);
   if(!sorted.length){ svg.innerHTML = ''; return; }
@@ -3248,7 +3254,7 @@ function renderAnalysis(){
     el.addEventListener('click', open);
     el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
   });
-  renderParetoChart(byStation, s=>openDefectDetail(s.label, `${s.count} defects logged at this station`, 'defects', DEFECTS.filter(d=>d[1]===s.label)));
+  renderParetoChart('paretoSvg', byStation, s=>openDefectDetail(s.label, `${s.count} defects logged at this station`, 'defects', DEFECTS.filter(d=>d[1]===s.label)));
 
   // ---- Defects by department: each bar opens that department's defects ----
   // Known departments are listed in a fixed order for readability; any other
@@ -3388,6 +3394,8 @@ function renderAnalysis(){
     const t = topDefects[+tr.dataset.i];
     tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows, t.desc.trim().toUpperCase()));
   });
+  renderParetoChart('paretoDescSvg', topDefects.map(t=>({label:t.desc, count:t.count, rows:t.rows, station:t.station})),
+    t=>openDefectDetail(t.label, `${t.count} units at ${t.station}`, 'defects', t.rows, t.label.trim().toUpperCase()));
 
   // ---- Defects by unit: VIN ascending, with a running S. No. (click straight through to that VIN's card) ----
   const vinRowsAscending = [...vinRows].sort((a,b)=>
