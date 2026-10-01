@@ -3422,18 +3422,58 @@ wireClearButton('clearDefectsBtn', 'uploadDefectsStatus', 'LX3 defect report', [
 wireClearButton('clearManualDefectsBtn', 'uploadManualDefectsStatus', 'manual defect sheet', [{table:'manual_defects', col:'id'}, {table:'manual_vehicle_status', col:'vin'}]);
 
 // Second way to flag Advance Posted units (alongside the Units table's
-// checkbox selection): upload the month-end SAP list directly. The exact
-// layout of that export isn't fixed/known, so rather than requiring a
-// specific header row, this just scans every cell of every row for
-// anything that looks like a VIN (full 17-char VIN, or a bare 6-digit
-// suffix resolved against the current roster) and flags whatever it finds
-// — merging into, not replacing, whatever's already flagged, same as the
-// bulk "Mark Advance Posted" button.
+// checkbox selection): upload the month-end physical status/location list
+// directly — e.g. SR#/Material/Batch/VIN/Color/Current Location, as
+// exported for month-close, where every unit on the list is already posted
+// Unrestricted/Sold in SAP regardless of its real physical stage. The
+// header row is found by content (a "VIN"/"Chassis" column and a
+// "Location"/"Status" column) rather than a fixed layout, since the exact
+// column order isn't guaranteed month to month. Both the flag AND the real
+// location are set directly from the file in one step — merging into, not
+// replacing, whatever's already flagged (a row whose location text doesn't
+// match a known stage still gets flagged, just without a location yet, the
+// same as the bulk "Mark Advance Posted" button).
 (function wireAdvancePostedUpload(){
   const input = document.getElementById('uploadAdvancePosted');
   const statusEl = document.getElementById('uploadAdvancePostedStatus');
-  const fullVinRe = /^[A-Z0-9]{17}$/;
+  // LX3's VIN prefix specifically — not just "any 17-char code" — since
+  // this export can include other vehicle models/plants mixed in (seen in
+  // practice: an unrelated batch sitting at "Pack Inventory"), which this
+  // dashboard has no data for and shouldn't flag.
+  const fullVinRe = /^PMHRM81ASTN\d{6}$/;
   const suffixRe = /^\d{6}$/;
+  // Maps the free-text "Current Location" values this export actually uses
+  // (and reasonable variants) to this app's own stage codes.
+  const LOCATION_ALIASES = {
+    'BODY IN':'1000', 'BODY OUT':'1010',
+    'PAINT IN':'2000', 'PAINT OUT':'2010',
+    'TCF IN':'3000', 'TCF OUT':'3010',
+    'INSPECTION IN':'4000', 'INSPECTION OUT':'4010', 'QC OK':'4010', 'PDI PENDING':'4010',
+    'BU STOCK':'USTK', 'UNRESTRICTED':'USTK', 'STOCK':'USTK',
+    'SOLD':'SOLD',
+  };
+  function matchStageCode(text){
+    if(text==null) return null;
+    const s = String(text).trim().toUpperCase();
+    if(!s) return null;
+    if(LOCATION_ALIASES[s]) return LOCATION_ALIASES[s];
+    const stage = ALL_STAGES.find(st=>st.label.toUpperCase()===s);
+    return stage ? stage.code : null;
+  }
+  // Accepts any syntactically valid LX3 VIN regardless of whether it's in
+  // the CURRENT production upload yet — this list can run ahead of the
+  // last roster upload, and the flag should still take once that catches
+  // up, not get silently dropped for being "unknown" today.
+  function resolveVin(cell){
+    if(cell==null) return null;
+    const s = String(cell).trim().toUpperCase();
+    if(fullVinRe.test(s)) return s;
+    if(suffixRe.test(s)){
+      const u = ALL_UNITS.find(x=>x.vinSuffix===s);
+      return u ? u.vin : `PMHRM81ASTN${s}`; // best-effort reconstruction if not in the roster yet
+    }
+    return null;
+  }
   input.addEventListener('change', async ()=>{
     const file = input.files[0];
     input.value = '';
@@ -3443,26 +3483,62 @@ wireClearButton('clearManualDefectsBtn', 'uploadManualDefectsStatus', 'manual de
     let rows;
     try{ rows = await readWorkbookRows(file); }
     catch(e){ statusEl.textContent = 'Could not read this file: ' + e.message; return; }
-    const found = new Set();
-    let unresolvedSuffixes = 0;
-    rows.forEach(row=>{
-      (row||[]).forEach(cell=>{
-        if(cell==null) return;
-        const s = String(cell).trim().toUpperCase();
-        if(fullVinRe.test(s)){ found.add(s); return; }
-        if(suffixRe.test(s)){
-          const u = ALL_UNITS.find(x=>x.vinSuffix===s);
-          if(u && u.vin) found.add(u.vin); else unresolvedSuffixes++;
-        }
+
+    let vinCol = -1, locCol = -1, headerRowIdx = -1;
+    for(let i=0;i<rows.length;i++){
+      const row = rows[i] || [];
+      const vc = row.findIndex(c=>c!=null && /VIN|CHASSIS/i.test(String(c)));
+      const lc = row.findIndex(c=>c!=null && /LOCATION|STATUS/i.test(String(c)));
+      if(vc!==-1 && lc!==-1){ vinCol=vc; locCol=lc; headerRowIdx=i; break; }
+    }
+
+    const matches = []; // {vin, code}
+    let notLx3 = 0, unmappedLocation = 0;
+    if(headerRowIdx!==-1){
+      for(let i=headerRowIdx+1;i<rows.length;i++){
+        const row = rows[i];
+        if(!row) continue;
+        const rawVin = row[vinCol];
+        const vin = resolveVin(rawVin);
+        if(!vin){ if(rawVin!=null && String(rawVin).trim()) notLx3++; continue; }
+        const code = matchStageCode(row[locCol]);
+        if(!code) unmappedLocation++;
+        matches.push({ vin, code });
+      }
+    } else {
+      // No recognizable header — fall back to scanning every cell for a
+      // VIN and just flagging it, with no location.
+      rows.forEach(row=>{
+        (row||[]).forEach(cell=>{
+          const vin = resolveVin(cell);
+          if(vin) matches.push({ vin, code: null });
+        });
       });
-    });
-    if(!found.size){
+    }
+    if(!matches.length){
       statusEl.textContent = 'No recognizable VINs found in this file.';
       return;
     }
-    statusEl.textContent = `Flagging ${found.size} unit(s)…`;
-    await setAdvancePosted([...found], true);
-    statusEl.textContent = `${found.size} unit(s) flagged as Advance Posted` + (unresolvedSuffixes ? ` (${unresolvedSuffixes} value(s) looked like a VIN suffix but didn't match any unit in the current data)` : '.');
+    statusEl.textContent = `Flagging ${matches.length} unit(s)…`;
+    const email = currentSession.user.email;
+    const now = new Date().toISOString();
+    const upsertRows = matches.map(m=>({
+      vin: m.vin,
+      flagged_by: email,
+      flagged_at: now,
+      ...(m.code ? { secondary_status: m.code, status_set_by: email, status_set_at: now } : {}),
+    }));
+    const { error } = await sb.from('advance_posted_units').upsert(upsertRows, { onConflict: 'vin' });
+    if(error){ statusEl.textContent = 'Upload failed: ' + error.message; return; }
+    await loadAdvancePostedCache();
+    applyAdvancePosted(ALL_UNITS);
+    renderTable(); renderKPIs();
+    if(currentDrawerUnit) renderDrawerRow(currentRowData);
+    const withLoc = matches.filter(m=>m.code).length;
+    logActivity('advance_posted_flag', `${matches.length} unit(s) flagged from file upload (${withLoc} with location set)`);
+    statusEl.textContent = `${matches.length} unit(s) flagged (${withLoc} with location set)` +
+      (notLx3 ? `, ${notLx3} row(s) skipped (not an LX3 VIN)` : '') +
+      (unmappedLocation ? `, ${unmappedLocation} location value(s) not recognized` : '') + '.';
   });
 })();
 
