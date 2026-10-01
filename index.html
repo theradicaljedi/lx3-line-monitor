@@ -995,9 +995,11 @@ function openDefectDetail(title, desc, mode, rows, annotKey){
 // position, same simplification the original per-month chart made by
 // construction (it only ever covered a single month at a time).
 let defectTrendCounts = {};
+let defectTrendThroughput = {}; // day -> distinct units that passed this station that day
 let defectTrendMonthLabel = '';
 function defectTrendShellHtml(rows){
   defectTrendCounts = {};
+  defectTrendThroughput = {};
   const months = new Set();
   (rows||[]).forEach(d=>{
     if(!d[3]) return;
@@ -1008,14 +1010,23 @@ function defectTrendShellHtml(rows){
   });
   if(!Object.keys(defectTrendCounts).length) return '';
   defectTrendMonthLabel = Array.from(months).join(' / ');
+  const station = rows[0][1];
+  const vinsByDay = {};
+  ALL_INSPECTION_ROWS.forEach(r=>{
+    if(r.station !== station || !r.serial) return;
+    const day = xl(r.serial).getDate();
+    (vinsByDay[day] || (vinsByDay[day] = new Set())).add(r.vin);
+  });
+  Object.keys(vinsByDay).forEach(day=>{ defectTrendThroughput[day] = vinsByDay[day].size; });
   return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
-    <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 150" style="width:100%;min-width:480px;height:auto"></svg></div>`;
+    <div class="emptynote" style="margin-bottom:6px">Label shows defects / units passed ${escapeHtml(station)} that day</div>
+    <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
 }
 function renderDefectTrendChart(){
   const svg = document.getElementById('defTrendSvg');
   if(!svg) return;
   const start = 1, end = 31;
-  const W = 820, H = 150, padL = 36, padR = 18, padT = 22, padB = 24;
+  const W = 820, H = 170, padL = 36, padR = 18, padT = 22, padB = 24;
   const maxCount = Math.max(1, ...Object.values(defectTrendCounts));
   const x = day => padL + ((day-start)/(end-start||1)) * (W-padL-padR);
   const y = v => H-padB - (v/maxCount) * (H-padT-padB);
@@ -1035,8 +1046,12 @@ function renderDefectTrendChart(){
     const pts = daysInRange.map(d=>`${x(d).toFixed(1)},${y(defectTrendCounts[d]).toFixed(1)}`).join(' ');
     parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
     daysInRange.forEach(d=>{
+      const passed = defectTrendThroughput[d];
+      const label = passed ? `${defectTrendCounts[d]}/${passed}` : `${defectTrendCounts[d]}`;
+      const rate = passed ? ` (${Math.round(defectTrendCounts[d]/passed*100)}%)` : '';
       parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${y(defectTrendCounts[d]).toFixed(1)}" r="4" fill="var(--accent)"/>`);
-      parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(defectTrendCounts[d])-10).toFixed(1)}" font-size="12" text-anchor="middle" fill="var(--ink)" font-weight="600">${defectTrendCounts[d]}</text>`);
+      parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(defectTrendCounts[d])-16).toFixed(1)}" font-size="11" text-anchor="middle" fill="var(--ink)" font-weight="600">${label}</text>`);
+      if(rate) parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(defectTrendCounts[d])-5).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--muted)">${rate}</text>`);
     });
   }
   svg.innerHTML = parts.join('');
@@ -1559,6 +1574,11 @@ function defectsForVin(vinSuffix){ return DEFECTS.filter(d=>d[0]===vinSuffix); }
 // used as the denominator for "clean units", since the fleet has plenty of
 // units this report simply hasn't reached yet.
 const INSPECTED_VINS = new Set(["900001","900002","900003","900004","900005","900006","900007","900008","900009","900010","900011","900012","900013","900014","900015","900016","900017","900018","900019","900020","900022","900023","900024","900025","900026","900027","900028","900029","900030","900091","900092","900093","900094","900095","900096","900097","900100","900101","900102","900106","900107","900109","900110","900112","900114","900115","900116","900117","900120"]);
+// Every inspected row (defect or clean "NIL") from both defect uploads, kept
+// separately from DEFECTS (which only holds rows with an actual defect) so
+// the per-defect trend chart can show how many units passed a station on a
+// given day, not just how many had this specific defect that day.
+let ALL_INSPECTION_ROWS = [];
 
 // The 21 sub-stage items, grouped exactly as the shop floor tracks them. These
 // only apply once a unit reaches Inspection In — that's what "kicks them on".
@@ -3448,6 +3468,7 @@ async function initData(){
   if(defRows || manualRows){
     DEFECTS.length = 0;
     INSPECTED_VINS.clear();
+    ALL_INSPECTION_ROWS.length = 0;
     // Combined into one list — the VIN-wise defect report and the manual
     // defect sheet both describe the same real defects, just from two
     // different upload sources, so every existing defect view (station
@@ -3455,10 +3476,12 @@ async function initData(){
     if(defRows){
       DEFECTS.push(...defRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, null, r.updated_at||null]));
       new Set(defRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
+      ALL_INSPECTION_ROWS.push(...defRows.map(r=>({vin:r.vin, station:r.station, serial:r.defect_serial})));
     }
     if(manualRows){
       DEFECTS.push(...manualRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, r.severity||null, r.updated_at||null]));
       new Set(manualRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
+      ALL_INSPECTION_ROWS.push(...manualRows.map(r=>({vin:r.vin, station:r.station, serial:r.defect_serial})));
     }
   }
   renderStagePicker(); // its per-stage counts read ROWS directly — stale otherwise
