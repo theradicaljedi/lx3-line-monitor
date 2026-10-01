@@ -536,6 +536,23 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     </div>
   </div>
 
+  <div id="apReconOverlay" class="signin-overlay" hidden>
+    <div class="signin-box detail-box">
+      <div class="signin-hdr">
+        <h3>Advance Posted vs. physical reconciliation</h3>
+        <button type="button" class="closebtn" id="apReconClose">&times;</button>
+      </div>
+      <div class="desc">Every unit currently flagged Advance Posted: its raw SAP status vs. the real location last logged by production planning. Mismatches (SAP status different from the last logged real location) are listed first.</div>
+      <div id="apReconError" class="emptynote"></div>
+      <div class="tablewrap detail-tablewrap">
+        <table>
+          <thead><tr><th>VIN</th><th>SAP status</th><th>Real location (latest log)</th><th>Logged on</th><th>Flagged by</th><th>Flagged on</th></tr></thead>
+          <tbody id="apReconBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div id="photoLightbox" class="photo-lightbox" hidden>
     <button type="button" class="closebtn lightbox-close" id="photoLightboxClose">&times;</button>
     <button type="button" class="photonavbtn lightbox-nav left" id="photoLightboxPrev" title="Previous photo">&#8249;</button>
@@ -581,6 +598,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <select id="colorFilter"></select>
         <label class="bu-toggle"><input type="checkbox" id="includeBU" checked> Include BU</label>
         <span class="count" id="rowcount"></span>
+        <button type="button" class="iconbtn" id="apReconBtn" hidden>Advance Posted Report</button>
       </div>
       <div class="toolbar" id="apSelectionBar" hidden>
         <span class="count" id="apSelectionCount"></span>
@@ -643,6 +661,12 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     </div>
 
     <div class="panel">
+      <h2>Pareto analysis &mdash; defects by station</h2>
+      <div class="desc">Stations sorted by defect count, with a cumulative-% line &mdash; the stations left of where it crosses 80% are the "vital few" driving most defects.</div>
+      <div style="overflow-x:auto"><svg id="paretoSvg" viewBox="0 0 700 280" style="width:100%;min-width:480px;height:auto"></svg></div>
+    </div>
+
+    <div class="panel">
       <h2>Trend across later-produced units <button type="button" class="collapsebtn" id="trendCollapseBtn" title="Expand">&#9656;</button></h2>
       <div id="trendPanelBody" hidden>
       <div class="desc">Inspected units split into an early subset and a later subset by production serial no. &mdash; compares average defects/unit between the two to see whether quality is improving or worsening as the line matures. Drag the slider to change where the split falls.</div>
@@ -687,6 +711,17 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <table>
           <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr></thead>
           <tbody id="defectsByVinBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Repeat offenders</h2>
+      <div class="desc">Units with defects logged at 2 or more different inspection stations &mdash; a pattern across stations can point to a bad batch or supplier lot rather than a single process issue.</div>
+      <div class="tablewrap compact">
+        <table>
+          <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Stations affected</th><th>Total defects</th></tr></thead>
+          <tbody id="repeatOffendersBody"></tbody>
         </table>
       </div>
     </div>
@@ -1037,6 +1072,51 @@ function defectTrendShellHtml(rows){
   return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
     <div class="emptynote" style="margin-bottom:6px"><span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(station)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed</div>
     <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
+}
+function renderParetoChart(items, onBarClick){
+  const svg = document.getElementById('paretoSvg');
+  if(!svg) return;
+  const sorted = items.filter(it=>it.count>0);
+  if(!sorted.length){ svg.innerHTML = ''; return; }
+  const total = sorted.reduce((s,it)=>s+it.count,0);
+  let running = 0;
+  const withCum = sorted.map(it=>{ running += it.count; return {...it, cumPct: running/total*100}; });
+  const W = 700, H = 280, padL = 40, padR = 40, padT = 16, padB = 70;
+  const n = withCum.length;
+  const bandW = (W-padL-padR) / n;
+  const maxCount = Math.max(1, ...withCum.map(it=>it.count));
+  const yCount = v => H-padB - (v/maxCount) * (H-padT-padB);
+  const yPct = p => H-padB - (p/100) * (H-padT-padB);
+  const xCenter = i => padL + bandW*i + bandW/2;
+  const parts = [];
+  // gridlines for the 0-100% axis (right side)
+  [0,20,40,60,80,100].forEach(p=>{
+    const yy = yPct(p);
+    parts.push(`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`);
+    parts.push(`<text x="${(W-padR+6).toFixed(1)}" y="${(yy+3).toFixed(1)}" font-size="10" fill="var(--muted)">${p}%</text>`);
+  });
+  // 80% reference line
+  parts.push(`<line x1="${padL}" y1="${yPct(80).toFixed(1)}" x2="${W-padR}" y2="${yPct(80).toFixed(1)}" stroke="#c0392b" stroke-width="1" stroke-dasharray="4,3"/>`);
+  // bars
+  withCum.forEach((it,i)=>{
+    const barW = bandW*0.6;
+    const bx = xCenter(i) - barW/2;
+    const by = yCount(it.count);
+    parts.push(`<rect class="paretobar" data-i="${i}" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${(H-padB-by).toFixed(1)}" fill="var(--bad)" style="cursor:pointer"/>`);
+    parts.push(`<text x="${xCenter(i).toFixed(1)}" y="${(by-6).toFixed(1)}" font-size="11" text-anchor="middle" fill="var(--ink)" font-weight="600">${it.count}</text>`);
+    const label = it.label.length > 14 ? it.label.slice(0,13)+'…' : it.label;
+    parts.push(`<text x="${xCenter(i).toFixed(1)}" y="${(H-padB+16).toFixed(1)}" font-size="10" text-anchor="end" fill="var(--muted)" transform="rotate(-35 ${xCenter(i).toFixed(1)} ${(H-padB+16).toFixed(1)})">${escapeHtml(label)}</text>`);
+  });
+  // cumulative % line
+  const pts = withCum.map((it,i)=>`${xCenter(i).toFixed(1)},${yPct(it.cumPct).toFixed(1)}`).join(' ');
+  parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
+  withCum.forEach((it,i)=>{
+    parts.push(`<circle cx="${xCenter(i).toFixed(1)}" cy="${yPct(it.cumPct).toFixed(1)}" r="3.5" fill="var(--accent)"/>`);
+  });
+  svg.innerHTML = parts.join('');
+  svg.querySelectorAll('.paretobar').forEach(el=>{
+    el.addEventListener('click', ()=>onBarClick(withCum[+el.dataset.i]));
+  });
 }
 function renderDefectTrendChart(){
   const svg = document.getElementById('defTrendSvg');
@@ -2131,6 +2211,7 @@ function renderTable(){
   rowcountEl.textContent = rows.length + ' / ' + units.length + ' units in scope';
   const canSelect = canManageAdvancePosted();
   document.getElementById('apSelectAllHead').hidden = !canSelect;
+  document.getElementById('apReconBtn').hidden = !canSelect;
   const visibleVins = new Set(rows.map(u=>u.vin).filter(Boolean));
   // Drop anything selected that's scrolled out of the current filter/scope
   // so the count never silently includes rows you can no longer see.
@@ -2901,6 +2982,42 @@ document.getElementById('apUnmarkBtn').addEventListener('click', ()=>{
   setAdvancePosted([...apSelectedVins], false);
 });
 
+// ---------- Advance Posted vs. physical reconciliation report ----------
+function stageLabelFor(code){ return code ? (AP_STATUS_LABELS[code] || (ALL_STAGES.find(s=>s.code===code)||{}).label || code) : null; }
+function renderApReconReport(){
+  const rows = ALL_UNITS.filter(u=>u.advancePosted).map(u=>{
+    const latest = (u.movements && u.movements[0]) || null;
+    const sapLabel = stageLabelFor(u.statusCode);
+    const realLabel = latest ? stageLabelFor(latest.status_code) : null;
+    return {
+      vin: u.vin, sapCode: u.statusCode, sapLabel,
+      realCode: latest ? latest.status_code : null, realLabel,
+      loggedOn: latest ? latest.moved_at : null,
+      flaggedBy: u.apFlaggedBy, flaggedAt: u.apSetAt,
+      mismatch: !latest || latest.status_code !== u.statusCode,
+    };
+  }).sort((a,b)=> (b.mismatch - a.mismatch) || (a.vin||'').localeCompare(b.vin||''));
+  const body = document.getElementById('apReconBody');
+  const err = document.getElementById('apReconError');
+  err.hidden = rows.length > 0;
+  err.textContent = 'No units are currently flagged Advance Posted.';
+  body.innerHTML = rows.map(r=>`<tr style="${r.mismatch?'background:var(--bad-soft,#fdecea)':''}">
+    <td><span class="vin">${escapeHtml(r.vin||'')}</span></td>
+    <td>${escapeHtml(r.sapLabel||'—')}</td>
+    <td>${r.realLabel ? escapeHtml(r.realLabel) : '<span class="emptynote">Not logged yet</span>'}</td>
+    <td>${r.loggedOn ? escapeHtml(r.loggedOn) : ''}</td>
+    <td>${escapeHtml(r.flaggedBy||'')}</td>
+    <td>${r.flaggedAt ? fmtDate(new Date(r.flaggedAt)) : ''}</td>
+  </tr>`).join('');
+}
+const apReconOverlay = document.getElementById('apReconOverlay');
+document.getElementById('apReconBtn').addEventListener('click', ()=>{
+  renderApReconReport();
+  apReconOverlay.hidden = false;
+});
+document.getElementById('apReconClose').addEventListener('click', ()=>{ apReconOverlay.hidden = true; });
+apReconOverlay.addEventListener('click', e=>{ if(e.target===apReconOverlay) apReconOverlay.hidden = true; });
+
 // ---------- tabs ----------
 const tabbarEl = document.getElementById('tabbar');
 const tabRosterEl = document.getElementById('tabRoster');
@@ -3131,6 +3248,7 @@ function renderAnalysis(){
     el.addEventListener('click', open);
     el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
   });
+  renderParetoChart(byStation, s=>openDefectDetail(s.label, `${s.count} defects logged at this station`, 'defects', DEFECTS.filter(d=>d[1]===s.label)));
 
   // ---- Defects by department: each bar opens that department's defects ----
   // Known departments are listed in a fixed order for readability; any other
@@ -3287,6 +3405,34 @@ function renderAnalysis(){
   document.getElementById('defectsByVinBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
     if(!tr.dataset.sr) return;
     tr.style.cursor = 'pointer';
+    tr.addEventListener('click', ()=>{
+      tabbarEl.querySelector('[data-tab="roster"]').click();
+      openDrawer(tr.dataset.vin, +tr.dataset.sr);
+    });
+  });
+
+  // ---- Repeat offenders: units with defects at 2+ distinct stations ----
+  const repeatOffenders = vinRows
+    .map(r=>{
+      const rows = defectsByVin[r.vinSuffix] || [];
+      const stations = [...new Set(rows.map(d=>d[1]))];
+      return {...r, stations, rows};
+    })
+    .filter(r=>r.stations.length >= 2)
+    .sort((a,b)=> b.stations.length - a.stations.length || b.count - a.count);
+  document.getElementById('repeatOffendersBody').innerHTML = repeatOffenders.map((r,i)=>{
+    const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
+    return `<tr data-vin="${escapeHtml(r.u?r.u.vin:'')}" data-sr="${r.u?r.u.sr:''}" style="cursor:pointer">
+      <td>${i+1}</td>
+      <td><span class="vin">${escapeHtml(r.u ? r.u.vin : r.vinSuffix)}</span></td>
+      <td>${swatch}${escapeHtml(r.u ? (r.u.colorCode||'') : '')}</td>
+      <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
+      <td>${escapeHtml(r.stations.join(', '))}</td>
+      <td>${r.count}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6"><div class="emptynote">No unit has defects at 2 or more stations.</div></td></tr>`;
+  document.getElementById('repeatOffendersBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
+    if(!tr.dataset.sr) return;
     tr.addEventListener('click', ()=>{
       tabbarEl.querySelector('[data-tab="roster"]').click();
       openDrawer(tr.dataset.vin, +tr.dataset.sr);
