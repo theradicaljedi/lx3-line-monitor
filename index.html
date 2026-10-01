@@ -448,6 +448,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <select class="roleselect" id="newUserRole">
           <option value="viewer">Viewer</option>
           <option value="editor">Editor</option>
+          <option value="production_planning">Production Planning</option>
           <option value="admin">Admin</option>
         </select>
         <button type="button" class="markbtn" id="newUserSubmit">Create account</button>
@@ -711,6 +712,12 @@ let currentSession = null;
 // or viewer (read-only). null until loadCurrentRole() resolves after sign-in.
 let currentRole = null;
 function canWriteNow(){ return !!sb && !!currentSession && (currentRole==="admin" || currentRole==="editor"); }
+// Narrower than canWriteNow(): only admin or the production_planning role
+// can flag/unflag units as Advance Posted or change their secondary
+// status/date — a plain editor cannot, even though editor can write
+// everything else (production/defect uploads, checklist taps, issues).
+function canManageAdvancePosted(){ return !!sb && !!currentSession && (currentRole==="admin" || currentRole==="production_planning"); }
+const ROLE_LABELS = { admin:"Admin", editor:"Editor", viewer:"Viewer", production_planning:"Production Planning" };
 async function loadCurrentRole(){
   if(!sb || !currentSession){ currentRole = null; return; }
   const { data, error } = await sb.from('user_roles').select('role').eq('user_id', currentSession.user.id).maybeSingle();
@@ -754,14 +761,23 @@ function renderAuthArea(){
     return;
   }
   if(currentSession){
-    const roleLabel = currentRole ? currentRole[0].toUpperCase()+currentRole.slice(1) : '…';
+    const roleLabel = currentRole ? (ROLE_LABELS[currentRole] || currentRole) : '…';
     authAreaEl.innerHTML = `<div class="authuser"><span class="rolebadge">${roleLabel}</span> ${currentSession.user.email} <button type="button" id="changePasswordBtn">Change password</button> <button type="button" id="signOutBtn">Sign out</button></div>`;
     document.getElementById('signOutBtn').addEventListener('click', async ()=>{ await sb.auth.signOut(); });
     document.getElementById('changePasswordBtn').addEventListener('click', openNewPasswordModal);
     setConnStatus(true, 'Live (Supabase) — signed in');
     if(scopeBtnEl) scopeBtnEl.hidden = false;
     if(dailyReportBtnEl) dailyReportBtnEl.hidden = currentRole !== 'admin';
-    if(uploadBtnEl) uploadBtnEl.hidden = !canWriteNow();
+    if(uploadBtnEl) uploadBtnEl.hidden = !(canWriteNow() || canManageAdvancePosted());
+    // A production_planning-only account can open the Upload modal (for the
+    // Advance Posted slot) but shouldn't be able to touch the regular
+    // production/defect uploads — those stay gated on canWriteNow().
+    ['uploadProduction','uploadDefects','uploadManualDefects'].forEach(id=>{
+      const el = document.getElementById(id);
+      if(el) el.disabled = !canWriteNow();
+    });
+    const apUploadEl = document.getElementById('uploadAdvancePosted');
+    if(apUploadEl) apUploadEl.disabled = !canManageAdvancePosted();
     if(usersBtnEl) usersBtnEl.hidden = currentRole !== 'admin';
     if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = currentRole !== 'admin';
     if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = currentRole !== 'admin';
@@ -984,7 +1000,7 @@ async function loadUsersModal(){
   body.innerHTML = data.map(r=>`<tr data-uid="${r.user_id}">
     <td>${r.email||''}</td>
     <td><select class="roleselect" data-uid="${r.user_id}" data-email="${escapeHtml(r.email||'')}">
-      ${['admin','editor','viewer'].map(role=>`<option value="${role}" ${r.role===role?'selected':''}>${role[0].toUpperCase()+role.slice(1)}</option>`).join('')}
+      ${['admin','editor','production_planning','viewer'].map(role=>`<option value="${role}" ${r.role===role?'selected':''}>${ROLE_LABELS[role]}</option>`).join('')}
     </select></td>
   </tr>`).join('') || '<tr><td colspan="2"><div class="emptynote">No accounts yet — sign in with each account once so its row is provisioned.</div></td></tr>';
   body.querySelectorAll('.roleselect').forEach(sel=>{
@@ -1690,7 +1706,7 @@ const apSelectedVins = new Set();
 function updateApSelectionUI(){
   const bar = document.getElementById('apSelectionBar');
   const n = apSelectedVins.size;
-  bar.hidden = !canWriteNow() || n===0;
+  bar.hidden = !canManageAdvancePosted() || n===0;
   document.getElementById('apSelectionCount').textContent = `${n} selected`;
 }
 function renderTable(){
@@ -1749,7 +1765,7 @@ function renderTable(){
   }
   updateSortIcons();
   rowcountEl.textContent = rows.length + ' / ' + units.length + ' units in scope';
-  const canSelect = canWriteNow();
+  const canSelect = canManageAdvancePosted();
   document.getElementById('apSelectAllHead').hidden = !canSelect;
   const visibleVins = new Set(rows.map(u=>u.vin).filter(Boolean));
   // Drop anything selected that's scrolled out of the current filter/scope
@@ -2270,7 +2286,7 @@ function openDrawer(vin, sr){
         ${ALL_STAGES.filter(s=>!['PLAN','USTK','SOLD'].includes(s.code)).map(s=>`<option value="${s.code}" ${u.secondaryStatusCode===s.code?'selected':''}>${AP_STATUS_LABELS[s.code]||s.label}</option>`).join('')}
       </select>
       <input type="date" id="apStatusDate" value="${u.apSetAt ? new Date(u.apSetAt).toISOString().slice(0,10) : todayStr()}" max="${todayStr()}">
-      ${canWriteNow() ? `<button type="button" class="markbtn" id="apStatusSave">Save</button><button type="button" class="clearbtn" id="apUnflagOne" title="Remove advance-posted flag">Unflag</button>` : ''}
+      ${canManageAdvancePosted() ? `<button type="button" class="markbtn" id="apStatusSave">Save</button><button type="button" class="clearbtn" id="apUnflagOne" title="Remove advance-posted flag">Unflag</button>` : ''}
     </div>` : ''}
     <div class="drawer-2col">
       <div class="drawer-main">
@@ -3504,7 +3520,7 @@ wireClearButton('clearManualDefectsBtn', 'uploadManualDefectsStatus', 'manual de
     const file = input.files[0];
     input.value = '';
     if(!file) return;
-    if(!canWriteNow()){ statusEl.textContent = !sb ? 'Sign in first.' : !currentSession ? 'Sign in first.' : 'Viewers cannot upload data.'; return; }
+    if(!canManageAdvancePosted()){ statusEl.textContent = !sb ? 'Sign in first.' : !currentSession ? 'Sign in first.' : 'Only Admin or Production Planning accounts can do this.'; return; }
     statusEl.textContent = 'Reading file…';
     let rows;
     try{ rows = await readWorkbookRows(file); }

@@ -32,9 +32,15 @@
 create table if not exists public.user_roles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   email text,
-  role text not null default 'viewer' check (role in ('admin','editor','viewer')),
+  -- production_planning: a narrow role that can ONLY flag/unflag units as
+  -- Advance Posted and set their secondary status/date (see
+  -- advance_posted_units below) — it does not grant general write access
+  -- (uploads, checklist taps, issues) the way editor/admin do.
+  role text not null default 'viewer' check (role in ('admin','editor','viewer','production_planning')),
   updated_at timestamptz not null default now()
 );
+alter table public.user_roles drop constraint if exists user_roles_role_check;
+alter table public.user_roles add constraint user_roles_role_check check (role in ('admin','editor','viewer','production_planning'));
 alter table public.user_roles enable row level security;
 
 -- security definer so this can check user_roles without the calling
@@ -53,10 +59,18 @@ create or replace function public.has_write_access(uid uuid) returns boolean
 language sql security definer stable set search_path = '' as $$
   select exists(select 1 from public.user_roles where user_id = uid and role in ('admin','editor'));
 $$;
+-- Admin or production_planning only — see advance_posted_units below for
+-- why this is narrower than has_write_access.
+create or replace function public.can_manage_advance_posted(uid uuid) returns boolean
+language sql security definer stable set search_path = '' as $$
+  select exists(select 1 from public.user_roles where user_id = uid and role in ('admin','production_planning'));
+$$;
 revoke execute on function public.is_admin(uuid) from public;
 revoke execute on function public.has_write_access(uuid) from public;
+revoke execute on function public.can_manage_advance_posted(uuid) from public;
 grant execute on function public.is_admin(uuid) to authenticated;
 grant execute on function public.has_write_access(uuid) to authenticated;
+grant execute on function public.can_manage_advance_posted(uuid) to authenticated;
 
 -- (select auth.uid()) rather than a bare auth.uid() — lets Postgres evaluate
 -- it once per query (initplan) instead of once per row; same reasoning
@@ -297,3 +311,35 @@ drop policy if exists "activity_log_write" on public.activity_log;
 create policy "activity_log_write" on public.activity_log for insert with check (public.has_write_access((select auth.uid())));
 drop policy if exists "activity_log_delete" on public.activity_log;
 create policy "activity_log_delete" on public.activity_log for delete using (public.is_admin((select auth.uid())));
+
+-- =====================================================================
+-- Advance Posted units — month-end, production bulk-advance-posts WIP
+-- units in SAP for invoicing, which makes the uploaded production Excel
+-- show them as Sold/BU Stock even though they're physically still
+-- mid-process. A unit flagged here has its SAP status overridden in the
+-- app by this manually-tracked "secondary status" (one of the regular
+-- stage codes — Body/Paint/TCF in/out, Inspection in/out) until someone
+-- un-flags it. Flagging/unflagging and setting the secondary status are
+-- gated on can_manage_advance_posted — admin or the narrow
+-- production_planning role, NOT the usual editor write access — since
+-- this is a distinct, more sensitive workflow than ordinary data entry.
+-- Everyone signed in can still READ it (it drives what every viewer sees
+-- on the Units table/VIN card).
+-- =====================================================================
+create table if not exists public.advance_posted_units (
+  vin text primary key,
+  secondary_status text,       -- a code from the app's stage list (Tester Line/Q-UP/Repair/etc.) that production sets to track where the unit really is
+  flagged_by text,
+  flagged_at timestamptz not null default now(),
+  status_set_by text,
+  status_set_at timestamptz
+);
+alter table public.advance_posted_units enable row level security;
+drop policy if exists "advance_posted_read" on public.advance_posted_units;
+create policy "advance_posted_read" on public.advance_posted_units for select using ((select auth.role()) = 'authenticated');
+drop policy if exists "advance_posted_write" on public.advance_posted_units;
+create policy "advance_posted_write" on public.advance_posted_units for insert with check (public.can_manage_advance_posted((select auth.uid())));
+drop policy if exists "advance_posted_update" on public.advance_posted_units;
+create policy "advance_posted_update" on public.advance_posted_units for update using (public.can_manage_advance_posted((select auth.uid()))) with check (public.can_manage_advance_posted((select auth.uid())));
+drop policy if exists "advance_posted_delete" on public.advance_posted_units;
+create policy "advance_posted_delete" on public.advance_posted_units for delete using (public.can_manage_advance_posted((select auth.uid())));
