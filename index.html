@@ -979,38 +979,70 @@ function openDefectDetail(title, desc, mode, rows, annotKey){
 let selectedDefectPhoto = null;
 // Occurrence trend for one defect type — day-of-month on the x-axis (like
 // the reference "Water Leakage Defect Tracking Record" charts), line +
-// value label per point, plus a row of the same numbers underneath. Dates
-// spanning more than one month collapse onto the same day-of-month
+// value label per point. Paginated a week (7 days) at a time rather than
+// cramming all 31 days into one view — a fixed count-scale across weeks
+// (computed from the whole month, not just the visible week) keeps the
+// y-axis stable while paging, so bars/line heights stay comparable.
+// Dates spanning more than one month collapse onto the same day-of-month
 // position, same simplification the original per-month chart made by
 // construction (it only ever covered a single month at a time).
-function defectTrendChartHtml(rows){
-  const counts = {}; // day-of-month (1-31) -> count
+let defectTrendCounts = {};
+let defectTrendWeekOffset = 0;
+function defectTrendShellHtml(rows){
+  defectTrendCounts = {};
   (rows||[]).forEach(d=>{
     if(!d[3]) return;
     const day = xl(d[3]).getDate();
-    counts[day] = (counts[day]||0) + 1;
+    defectTrendCounts[day] = (defectTrendCounts[day]||0) + 1;
   });
-  const days = Object.keys(counts).map(Number);
-  if(!days.length) return '';
-  const W = 820, H = 170, padL = 28, padR = 14, padT = 22, padB = 20;
-  const maxCount = Math.max(...Object.values(counts));
-  const x = day => padL + ((day-1)/30) * (W-padL-padR);
-  const y = v => H-padB - (v/Math.max(1,maxCount)) * (H-padT-padB);
-  const parts = [];
-  // Gridline + axis label per day 1..31, matching the reference chart's full month axis.
-  for(let d=1; d<=31; d++){
-    parts.push(`<text x="${x(d).toFixed(1)}" y="${H-4}" font-size="8" text-anchor="middle" fill="var(--muted)">${d}</text>`);
-  }
-  const sortedDays = days.slice().sort((a,b)=>a-b);
-  const pts = sortedDays.map(d=>`${x(d).toFixed(1)},${y(counts[d]).toFixed(1)}`).join(' ');
-  parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
-  sortedDays.forEach(d=>{
-    parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${y(counts[d]).toFixed(1)}" r="3" fill="var(--accent)"/>`);
-    parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(counts[d])-7).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--ink)" font-weight="600">${counts[d]}</text>`);
-  });
-  return `<div class="section-title" style="margin-top:0">Occurrences by day of month</div>
-    <div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:560px;height:auto">${parts.join('')}</svg></div>`;
+  if(!Object.keys(defectTrendCounts).length) return '';
+  defectTrendWeekOffset = 0;
+  return `<div class="section-title withbtn" style="margin-top:0">Occurrences by day of month
+      <span style="display:flex;align-items:center;gap:8px">
+        <button type="button" class="collapsebtn" id="defTrendPrevWeek" title="Previous week">&#8249;</button>
+        <span class="emptynote" id="defTrendWeekLabel" style="font-style:normal"></span>
+        <button type="button" class="collapsebtn" id="defTrendNextWeek" title="Next week">&#8250;</button>
+      </span>
+    </div>
+    <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 560 170" style="width:100%;min-width:420px;height:auto"></svg></div>`;
 }
+function renderDefectTrendChart(){
+  const svg = document.getElementById('defTrendSvg');
+  if(!svg) return;
+  const start = defectTrendWeekOffset*7 + 1, end = Math.min(start+6, 31);
+  document.getElementById('defTrendWeekLabel').textContent = `Day ${start}–${end}`;
+  document.getElementById('defTrendPrevWeek').disabled = defectTrendWeekOffset === 0;
+  document.getElementById('defTrendNextWeek').disabled = end >= 31;
+  const W = 560, H = 170, padL = 30, padR = 14, padT = 22, padB = 20;
+  const maxCount = Math.max(1, ...Object.values(defectTrendCounts));
+  const x = day => padL + ((day-start)/(end-start||1)) * (W-padL-padR);
+  const y = v => H-padB - (v/maxCount) * (H-padT-padB);
+  const parts = [];
+  const ticks = Math.min(maxCount, 5);
+  for(let t=0;t<=ticks;t++){
+    const v = Math.round(maxCount*t/ticks), yy = y(v);
+    parts.push(`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`);
+    parts.push(`<text x="${padL-6}" y="${(yy+3).toFixed(1)}" font-size="9" text-anchor="end" fill="var(--muted)">${v}</text>`);
+  }
+  for(let d=start; d<=end; d++){
+    parts.push(`<text x="${x(d).toFixed(1)}" y="${H-4}" font-size="9" text-anchor="middle" fill="var(--muted)">${d}</text>`);
+  }
+  const daysInRange = [];
+  for(let d=start; d<=end; d++) if(defectTrendCounts[d]!=null) daysInRange.push(d);
+  if(daysInRange.length){
+    const pts = daysInRange.map(d=>`${x(d).toFixed(1)},${y(defectTrendCounts[d]).toFixed(1)}`).join(' ');
+    parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
+    daysInRange.forEach(d=>{
+      parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${y(defectTrendCounts[d]).toFixed(1)}" r="3" fill="var(--accent)"/>`);
+      parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(defectTrendCounts[d])-7).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--ink)" font-weight="600">${defectTrendCounts[d]}</text>`);
+    });
+  }
+  svg.innerHTML = parts.join('');
+}
+document.getElementById('defectAnnotationPanel').addEventListener('click', e=>{
+  if(e.target.id==='defTrendPrevWeek' && defectTrendWeekOffset>0){ defectTrendWeekOffset--; renderDefectTrendChart(); }
+  if(e.target.id==='defTrendNextWeek' && defectTrendWeekOffset*7+8<=31){ defectTrendWeekOffset++; renderDefectTrendChart(); }
+});
 function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
   const panel = document.getElementById('defectAnnotationPanel');
   selectedDefectPhoto = null;
@@ -1020,7 +1052,7 @@ function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
   const canEdit = canWriteNow();
   const isClosed = a.status === 'closed';
   panel.innerHTML = `
-    ${defectTrendChartHtml(rows)}
+    ${defectTrendShellHtml(rows)}
     <div class="defannot">
       <div class="defannot-photo">
         <img id="defannotPhotoImg" src="${a.photo_url ? escapeHtml(a.photo_url) : ''}" style="${a.photo_url ? '' : 'display:none'}" alt="Defect illustration">
@@ -1041,6 +1073,7 @@ function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
         ${canEdit ? `<button type="button" class="markbtn" id="defannotSave" style="align-self:flex-start">Save</button>` : ''}
       </div>
     </div>`;
+  renderDefectTrendChart();
   if(!canEdit) return;
 
   let pendingStatus = a.status || 'open';
