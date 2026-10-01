@@ -293,6 +293,30 @@ create policy "issue_photos_delete" on storage.objects
   for delete using (bucket_id = 'issue-photos' and public.has_write_access(auth.uid()));
 
 -- =====================================================================
+-- Storage bucket holding the raw .xlsx of the most recent Production Data
+-- Upload (overwritten each time someone uploads a new one, mirroring how
+-- production_rows itself is fully replaced). Private bucket — unlike
+-- issue-photos, only admins may read/download it; editors can still
+-- upload (same as they can write production_rows).
+-- =====================================================================
+insert into storage.buckets (id, name, public)
+values ('production-uploads', 'production-uploads', false)
+on conflict (id) do nothing;
+
+drop policy if exists "production_uploads_read" on storage.objects;
+create policy "production_uploads_read" on storage.objects
+  for select using (bucket_id = 'production-uploads' and public.is_admin((select auth.uid())));
+drop policy if exists "production_uploads_write" on storage.objects;
+create policy "production_uploads_write" on storage.objects
+  for insert with check (bucket_id = 'production-uploads' and public.has_write_access((select auth.uid())));
+drop policy if exists "production_uploads_update" on storage.objects;
+create policy "production_uploads_update" on storage.objects
+  for update using (bucket_id = 'production-uploads' and public.has_write_access((select auth.uid())));
+drop policy if exists "production_uploads_delete" on storage.objects;
+create policy "production_uploads_delete" on storage.objects
+  for delete using (bucket_id = 'production-uploads' and public.is_admin((select auth.uid())));
+
+-- =====================================================================
 -- Activity log — powers the "Activity Log" tab: who did what and when
 -- (data uploads/clears, VIN card checklist/milestone taps, issue
 -- add/edit/delete, role changes, account creation). Append-only from most

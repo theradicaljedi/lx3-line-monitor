@@ -374,6 +374,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
       <div class="uploadrow">
         <div class="uploadlbl">LX3 Production Data <span class="emptynote">(LX3 Data.xlsx)</span></div>
         <label class="filebtn">Choose file<input type="file" id="uploadProduction" accept=".xlsx"></label>
+        <button type="button" class="iconbtn" id="downloadProductionBtn" title="Admin only: download the most recently uploaded file as-is" hidden>Download raw file</button>
         <span id="uploadProductionStatus" class="emptynote"></span>
       </div>
       <div class="uploadrow">
@@ -777,6 +778,8 @@ function renderAuthArea(){
     if(usersBtnEl) usersBtnEl.hidden = true;
     if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = true;
     if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = true;
+    const downloadProductionBtnEl0 = document.getElementById('downloadProductionBtn');
+    if(downloadProductionBtnEl0) downloadProductionBtnEl0.hidden = true;
     authGate.hidden = true; mainContent.hidden = false; // no Supabase configured — nothing to gate behind
     return;
   }
@@ -801,6 +804,8 @@ function renderAuthArea(){
     if(usersBtnEl) usersBtnEl.hidden = currentRole !== 'admin';
     if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = currentRole !== 'admin';
     if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = currentRole !== 'admin';
+    const downloadProductionBtnEl = document.getElementById('downloadProductionBtn');
+    if(downloadProductionBtnEl) downloadProductionBtnEl.hidden = currentRole !== 'admin';
     authGate.hidden = true;
     mainContent.hidden = false;
   } else {
@@ -813,6 +818,8 @@ function renderAuthArea(){
     if(usersBtnEl) usersBtnEl.hidden = true;
     if(clearDefectsBtnEl) clearDefectsBtnEl.hidden = true;
     if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = true;
+    const downloadProductionBtnEl2 = document.getElementById('downloadProductionBtn');
+    if(downloadProductionBtnEl2) downloadProductionBtnEl2.hidden = true;
     authGate.hidden = false;
     mainContent.hidden = true;
   }
@@ -3335,7 +3342,7 @@ async function readWorkbookRows(file){
   return XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:null});
 }
 
-function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tableName, deleteFilterCol, buildStatus, activityAction }){
+function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tableName, deleteFilterCol, buildStatus, activityAction, storeRawPath }){
   const input = document.getElementById(inputId);
   const statusEl = document.getElementById(statusId);
   input.addEventListener('change', async ()=>{
@@ -3371,6 +3378,20 @@ function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tab
       statusEl.textContent = 'Upload failed: ' + e.message;
       return;
     }
+    // Keep the raw file itself (admin-only download) — overwritten each
+    // upload, same full-replace semantics as the parsed table above. Not
+    // optional: if this fails, the upload as a whole is reported as
+    // failed, even though the parsed data already landed, so it doesn't
+    // silently go un-noticed.
+    if(storeRawPath){
+      const { error: rawErr } = await sb.storage.from('production-uploads').upload(storeRawPath, file, { upsert: true, contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      if(rawErr){
+        statusEl.textContent = `Data loaded (${parsed.length} units), but saving the raw file failed: ${rawErr.message}`;
+        if(activityAction) logActivity(activityAction, buildStatus(parsed) + ' (raw file not saved)');
+        await initData();
+        return;
+      }
+    }
     statusEl.textContent = 'Loading…';
     await initData();
     const summary = buildStatus(parsed);
@@ -3405,6 +3426,21 @@ wireUpload('uploadProduction', 'uploadProductionStatus', {
   deleteFilterCol: 'batch',
   buildStatus: parsed => `Done — ${parsed.length} units loaded.`,
   activityAction: 'production_upload',
+  storeRawPath: 'latest.xlsx',
+});
+document.getElementById('downloadProductionBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('downloadProductionBtn');
+  if(currentRole !== 'admin') return; // UI-level guard only — RLS is the real gate
+  btn.disabled = true;
+  const { data, error } = await sb.storage.from('production-uploads').createSignedUrl('latest.xlsx', 60);
+  btn.disabled = false;
+  if(error){ alert(`Couldn't get the file: ${error.message}`); return; }
+  const a = document.createElement('a');
+  a.href = data.signedUrl;
+  a.download = 'LX3 Data.xlsx';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 });
 
 wireUpload('uploadDefects', 'uploadDefectsStatus', {
