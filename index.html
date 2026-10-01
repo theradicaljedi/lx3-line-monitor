@@ -973,11 +973,45 @@ function openDefectDetail(title, desc, mode, rows, annotKey){
   defectDetailSortCol = null;
   defectDetailSortDir = 1;
   renderDefectDetailBody();
-  renderDefectAnnotationPanel(annotKey, title);
+  renderDefectAnnotationPanel(annotKey, title, rows);
   defectDetailOverlay.hidden = false;
 }
 let selectedDefectPhoto = null;
-function renderDefectAnnotationPanel(annotKey, displayDesc){
+// Occurrence trend for one defect type — day-of-month on the x-axis (like
+// the reference "Water Leakage Defect Tracking Record" charts), line +
+// value label per point, plus a row of the same numbers underneath. Dates
+// spanning more than one month collapse onto the same day-of-month
+// position, same simplification the original per-month chart made by
+// construction (it only ever covered a single month at a time).
+function defectTrendChartHtml(rows){
+  const counts = {}; // day-of-month (1-31) -> count
+  (rows||[]).forEach(d=>{
+    if(!d[3]) return;
+    const day = xl(d[3]).getDate();
+    counts[day] = (counts[day]||0) + 1;
+  });
+  const days = Object.keys(counts).map(Number);
+  if(!days.length) return '';
+  const W = 820, H = 170, padL = 28, padR = 14, padT = 22, padB = 20;
+  const maxCount = Math.max(...Object.values(counts));
+  const x = day => padL + ((day-1)/30) * (W-padL-padR);
+  const y = v => H-padB - (v/Math.max(1,maxCount)) * (H-padT-padB);
+  const parts = [];
+  // Gridline + axis label per day 1..31, matching the reference chart's full month axis.
+  for(let d=1; d<=31; d++){
+    parts.push(`<text x="${x(d).toFixed(1)}" y="${H-4}" font-size="8" text-anchor="middle" fill="var(--muted)">${d}</text>`);
+  }
+  const sortedDays = days.slice().sort((a,b)=>a-b);
+  const pts = sortedDays.map(d=>`${x(d).toFixed(1)},${y(counts[d]).toFixed(1)}`).join(' ');
+  parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
+  sortedDays.forEach(d=>{
+    parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${y(counts[d]).toFixed(1)}" r="3" fill="var(--accent)"/>`);
+    parts.push(`<text x="${x(d).toFixed(1)}" y="${(y(counts[d])-7).toFixed(1)}" font-size="9" text-anchor="middle" fill="var(--ink)" font-weight="600">${counts[d]}</text>`);
+  });
+  return `<div class="section-title" style="margin-top:0">Occurrences by day of month</div>
+    <div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" style="width:100%;min-width:560px;height:auto">${parts.join('')}</svg></div>`;
+}
+function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
   const panel = document.getElementById('defectAnnotationPanel');
   selectedDefectPhoto = null;
   if(!annotKey){ panel.innerHTML = ''; panel.hidden = true; return; }
@@ -986,6 +1020,7 @@ function renderDefectAnnotationPanel(annotKey, displayDesc){
   const canEdit = canWriteNow();
   const isClosed = a.status === 'closed';
   panel.innerHTML = `
+    ${defectTrendChartHtml(rows)}
     <div class="defannot">
       <div class="defannot-photo">
         <img id="defannotPhotoImg" src="${a.photo_url ? escapeHtml(a.photo_url) : ''}" style="${a.photo_url ? '' : 'display:none'}" alt="Defect illustration">
@@ -1064,7 +1099,7 @@ function renderDefectAnnotationPanel(annotKey, displayDesc){
     if(error){ alert(`Couldn't save: ${error.message}`); return; }
     await loadDefectAnnotations();
     logActivity('defect_annotation_save', displayDesc.slice(0,120));
-    renderDefectAnnotationPanel(annotKey, displayDesc);
+    renderDefectAnnotationPanel(annotKey, displayDesc, rows);
   });
 }
 document.getElementById('signinSubmit').addEventListener('click', async ()=>{
