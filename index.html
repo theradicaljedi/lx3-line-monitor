@@ -61,16 +61,13 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .hdr h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;letter-spacing:.2px;margin:0 0 2px}
 .hdr .sub{color:var(--muted);font-size:13px}
 .hdr .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:6px}
-.connbadge{font-family:'IBM Plex Mono',monospace;font-size:11.5px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 11px;color:var(--muted);box-shadow:var(--shadow);display:flex;align-items:center;gap:6px}
-.connbadge .dot{width:7px;height:7px;border-radius:50%;background:var(--bad)}
-.connbadge.ok .dot{background:var(--good)}
 .authbtn{background:var(--accent);color:#fff;border:none;border-radius:20px;padding:5px 12px;font-size:11.5px;font-weight:600;cursor:pointer}
 .authuser{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
 .authuser button{background:none;border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:11px;color:var(--muted);cursor:pointer}
 .signin-overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:100;display:flex;align-items:center;justify-content:center;padding:16px}
 .signin-box{background:var(--surface);border-radius:12px;padding:18px;width:100%;max-width:340px;box-shadow:var(--shadow)}
-.detail-box{max-width:680px;max-height:85vh;display:flex;flex-direction:column}
-.detail-tablewrap{overflow-y:auto}
+.detail-box{max-width:960px;max-height:85vh;overflow-y:auto}
+.detail-tablewrap{overflow-y:visible}
 .detail-row{cursor:pointer}
 .detail-row:hover{background:var(--surface-2)}
 .signin-hdr{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
@@ -211,6 +208,34 @@ th.sortable:hover{color:var(--ink)}
 .apmovetable td{padding:4px 8px;background:var(--surface);border-top:1px solid var(--line)}
 .apmovetable tr:first-child td{border-top:none}
 .apaddrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+.defannot{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:16px;margin-bottom:14px;display:flex;gap:20px;flex-wrap:wrap}
+.defannot-fields{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.defannot-fields label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px}
+.defannot-fields textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-family:inherit;font-size:12.5px;resize:vertical;min-height:60px;background:var(--surface);color:var(--ink)}
+.defannot-photo{flex:0 0 160px;display:flex;flex-direction:column;align-items:center;gap:8px;padding-right:20px;border-right:1px solid var(--line)}
+.defannot-photobox{position:relative;width:160px;height:160px;border-radius:8px;background:var(--surface);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.defannot-photobox img{display:block;width:100%;height:100%;object-fit:cover}
+.photonavbtn{position:absolute;top:50%;transform:translateY(-50%);width:24px;height:24px;border-radius:50%;border:none;background:rgba(0,0,0,.55);color:#fff;font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.photonavbtn.left{left:4px}
+.photonavbtn.right{right:4px}
+.photonavbtn:hover{background:rgba(0,0,0,.75)}
+.photonavcount{position:absolute;bottom:4px;right:6px;font-size:10px;color:#fff;background:rgba(0,0,0,.55);padding:1px 6px;border-radius:10px}
+.defannot-photobox img{cursor:zoom-in}
+.photo-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:200;display:flex;align-items:center;justify-content:center}
+.photo-lightbox img{max-width:90vw;max-height:85vh;object-fit:contain;border-radius:4px}
+.lightbox-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);color:#fff;border:none;width:36px;height:36px;border-radius:50%;font-size:20px;cursor:pointer}
+.lightbox-nav{width:44px;height:44px;font-size:22px}
+.lightbox-nav.left{left:16px}
+.lightbox-nav.right{right:16px}
+.lightbox-count{bottom:20px;right:50%;transform:translateX(50%);font-size:13px;padding:3px 10px}
+.defannot-statusrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:2px}
+@media(max-width:520px){
+  .defannot-photo{flex:1 1 100%;border-right:none;border-bottom:1px solid var(--line);padding-right:0;padding-bottom:14px}
+}
+.statuspill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:3px 10px;border-radius:20px}
+.statuspill.open{background:var(--bad-soft);color:var(--bad)}
+.statuspill.closed{background:var(--good-soft);color:var(--good)}
 .vqmini{display:flex;gap:3px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
 .dot.on{background:var(--good)}
@@ -322,7 +347,6 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
 .issuephotopreviewwrap .clearbtn{position:absolute;top:-8px;right:-8px;background:var(--surface);border:1px solid var(--line);border-radius:50%;width:22px;height:22px;box-shadow:var(--shadow);font-size:14px}
 .issue .issuephoto{display:block;max-width:220px;max-height:160px;border-radius:8px;margin-top:8px;object-fit:cover;cursor:pointer}
 .emptynote{font-size:12px;color:var(--muted);font-style:italic}
-.foot{color:var(--muted);font-size:11.5px;margin-top:22px;text-align:center}
 @media(max-width:640px){
   .citem:not(.tile){flex:1 1 100%}
   /* Tables that don't need a fixed/sticky layout (unlike Units or the
@@ -482,6 +506,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <button type="button" class="closebtn" id="defectDetailClose">&times;</button>
       </div>
       <div class="desc" id="defectDetailDesc"></div>
+      <div id="defectAnnotationPanel"></div>
       <div class="tablewrap detail-tablewrap">
         <table>
           <thead id="defectDetailHead"></thead>
@@ -505,6 +530,31 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         </table>
       </div>
     </div>
+  </div>
+
+  <div id="apReconOverlay" class="signin-overlay" hidden>
+    <div class="signin-box detail-box">
+      <div class="signin-hdr">
+        <h3>Advance Posted vs. physical reconciliation</h3>
+        <button type="button" class="closebtn" id="apReconClose">&times;</button>
+      </div>
+      <div class="desc">Every unit currently flagged Advance Posted: its raw SAP status vs. the real location last logged by production planning. Mismatches (SAP status different from the last logged real location) are listed first.</div>
+      <div id="apReconError" class="emptynote"></div>
+      <div class="tablewrap detail-tablewrap">
+        <table>
+          <thead><tr><th>VIN</th><th>SAP status</th><th>Real location (latest log)</th><th>Logged on</th><th>Flagged by</th><th>Flagged on</th></tr></thead>
+          <tbody id="apReconBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="photoLightbox" class="photo-lightbox" hidden>
+    <button type="button" class="closebtn lightbox-close" id="photoLightboxClose">&times;</button>
+    <button type="button" class="photonavbtn lightbox-nav left" id="photoLightboxPrev" title="Previous photo">&#8249;</button>
+    <img id="photoLightboxImg" src="" alt="Defect photo (large preview)">
+    <button type="button" class="photonavbtn lightbox-nav right" id="photoLightboxNext" title="Next photo">&#8250;</button>
+    <span class="photonavcount lightbox-count" id="photoLightboxCount"></span>
   </div>
 
   <div id="scanOverlay" class="signin-overlay" hidden>
@@ -544,6 +594,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <select id="colorFilter"></select>
         <label class="bu-toggle"><input type="checkbox" id="includeBU" checked> Include BU</label>
         <span class="count" id="rowcount"></span>
+        <button type="button" class="iconbtn" id="apReconBtn" hidden>Advance Posted Report</button>
       </div>
       <div class="toolbar" id="apSelectionBar" hidden>
         <span class="count" id="apSelectionCount"></span>
@@ -645,11 +696,28 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     </div>
 
     <div class="panel">
+      <h2>Pareto analysis &mdash; defects by defect wording</h2>
+      <div class="desc">Top 15 most frequent defect descriptions, sorted by occurrence count, with a cumulative-% line &mdash; the "vital few" wordings driving most of the issues.</div>
+      <div style="overflow-x:auto"><svg id="paretoDescSvg" viewBox="0 0 700 280" style="width:100%;min-width:480px;height:auto"></svg></div>
+    </div>
+
+    <div class="panel">
       <h2>Defects by unit</h2>
       <div class="tablewrap compact">
         <table>
           <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr></thead>
           <tbody id="defectsByVinBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Repeat offenders</h2>
+      <div class="desc">Units with defects logged at 2 or more different inspection stations &mdash; a pattern across stations can point to a bad batch or supplier lot rather than a single process issue.</div>
+      <div class="tablewrap compact">
+        <table>
+          <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Stations affected</th><th>Total defects</th></tr></thead>
+          <tbody id="repeatOffendersBody"></tbody>
         </table>
       </div>
     </div>
@@ -700,13 +768,7 @@ const sb = (SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-// The connection badge tile was removed from the UI, but setConnStatus is
-// still called from a few places below to log the state — harmless no-op
-// now that its DOM elements don't exist.
-function setConnStatus(ok, label){
-  if(!sb && !ok) console.warn(label);
-}
-setConnStatus(!!sb, sb ? 'Live (Supabase) — read-only' : 'Supabase not configured — edit index.html');
+if(!sb) console.warn('Supabase not configured — edit index.html');
 
 // ---------- Auth: the whole dashboard needs a signed-in account ----------
 // (Supabase dashboard > Authentication > Users > Add user — this page has no
@@ -756,6 +818,19 @@ const ADVANCE_POSTED_CACHE = {};
 // entry, not a separate stored field, so production planning can log as
 // many dated location changes as they want instead of overwriting one.
 const ADVANCE_POSTED_MOVEMENTS = {};
+// Quality root-cause tracking per defect TYPE (photo/root cause/corrective
+// action/status), keyed by the same normalized description text "Most
+// frequent defects" already groups by — not tied to any defect_rows/
+// manual_defects row ID, since those tables are fully replaced on every
+// upload.
+const DEFECT_ANNOTATIONS = {};
+async function loadDefectAnnotations(){
+  if(!sb) return;
+  const { data, error } = await sb.from('defect_annotations').select('*');
+  if(error){ console.error(error); return; }
+  Object.keys(DEFECT_ANNOTATIONS).forEach(k=>delete DEFECT_ANNOTATIONS[k]);
+  (data||[]).forEach(r=>{ DEFECT_ANNOTATIONS[r.description_key] = r; });
+}
 const authAreaEl = document.getElementById('authArea');
 const signinOverlay = document.getElementById('signinModalOverlay');
 const signinEmail = document.getElementById('signinEmail');
@@ -791,7 +866,6 @@ function renderAuthArea(){
     authAreaEl.innerHTML = `<div class="authuser"><span class="rolebadge">${roleLabel}</span> ${currentSession.user.email} <button type="button" id="changePasswordBtn">Change password</button> <button type="button" id="signOutBtn">Sign out</button></div>`;
     document.getElementById('signOutBtn').addEventListener('click', async ()=>{ await sb.auth.signOut(); });
     document.getElementById('changePasswordBtn').addEventListener('click', openNewPasswordModal);
-    setConnStatus(true, 'Live (Supabase) — signed in');
     if(scopeBtnEl) scopeBtnEl.hidden = false;
     if(dailyReportBtnEl) dailyReportBtnEl.hidden = currentRole !== 'admin';
     if(uploadBtnEl) uploadBtnEl.hidden = !(canWriteNow() || canManageAdvancePosted());
@@ -816,7 +890,6 @@ function renderAuthArea(){
   } else {
     authAreaEl.innerHTML = `<button type="button" class="authbtn" id="signInBtn">Sign in</button>`;
     document.getElementById('signInBtn').addEventListener('click', openSignin);
-    setConnStatus(true, 'Live (Supabase) — signed out');
     if(scopeBtnEl) scopeBtnEl.hidden = true;
     if(dailyReportBtnEl) dailyReportBtnEl.hidden = true;
     if(uploadBtnEl) uploadBtnEl.hidden = true;
@@ -866,7 +939,7 @@ let defectDetailSortCol = null;
 let defectDetailSortDir = 1;
 const DEFECT_DETAIL_COLS = {
   defects: [
-    {key:'vin', label:'VIN', get:d=>(ALL_UNITS.find(x=>x.vinSuffix===d[0])||{}).vin || d[0] || ''},
+    {key:'vin', label:'VIN', get:d=>(UNIT_BY_SUFFIX.get(d[0])||{}).vin || d[0] || ''},
     {key:'station', label:'Station', get:d=>d[1]||''},
     {key:'defect', label:'Defect', get:d=>d[2]||''},
     {key:'date', label:'Date', get:d=>d[3]||0},
@@ -897,7 +970,7 @@ function renderDefectDetailBody(){
   }
   if(mode === 'defects'){
     body.innerHTML = sortedRows.length ? sortedRows.map(d=>{
-      const u = ALL_UNITS.find(x=>x.vinSuffix===d[0]);
+      const u = UNIT_BY_SUFFIX.get(d[0]);
       return `<tr class="detail-row" data-vin="${escapeHtml(u?u.vin:'')}" data-sr="${u?u.sr:''}">
         <td><span class="vin">${escapeHtml(u?u.vin:d[0])}</span></td>
         <td>${escapeHtml(d[1])}</td>
@@ -941,14 +1014,293 @@ function renderDefectDetailBody(){
     });
   });
 }
-function openDefectDetail(title, desc, mode, rows){
+function openDefectDetail(title, desc, mode, rows, annotKey){
   document.getElementById('defectDetailTitle').textContent = title;
   document.getElementById('defectDetailDesc').textContent = desc || '';
   defectDetailState = { mode, rows };
   defectDetailSortCol = null;
   defectDetailSortDir = 1;
   renderDefectDetailBody();
+  renderDefectAnnotationPanel(annotKey, title, rows);
   defectDetailOverlay.hidden = false;
+}
+// Occurrence trend for one defect type — day-of-month (1-31) on the x-axis
+// (like the reference "Water Leakage Defect Tracking Record" charts), line +
+// value label per point, red N = units inspected at this station that day.
+// Dates spanning more than one month collapse onto the same day-of-month
+// position — acceptable since in practice one defect-type's rows span at
+// most a few weeks.
+let defectTrendCounts = {};
+let defectTrendThroughput = {}; // day -> distinct units that passed this station that day
+let defectTrendMonthLabel = '';
+function defectTrendShellHtml(rows){
+  defectTrendCounts = {};
+  defectTrendThroughput = {};
+  const months = new Set();
+  // Station can vary by day for the same defect wording (a unit's inspection
+  // station can differ day to day), so throughput is tracked per the day's
+  // actual station(s), not a single station assumed from rows[0].
+  const stationsByDay = {};
+  const stationsSeen = new Set();
+  (rows||[]).forEach(d=>{
+    if(!d[3]) return;
+    const dt = xl(d[3]);
+    const day = dt.getDate();
+    defectTrendCounts[day] = (defectTrendCounts[day]||0) + 1;
+    months.add(dt.toLocaleString('en-US',{month:'long',year:'numeric'}));
+    (stationsByDay[day] || (stationsByDay[day] = new Set())).add(d[1]);
+    stationsSeen.add(d[1]);
+  });
+  if(!Object.keys(defectTrendCounts).length) return '';
+  defectTrendMonthLabel = Array.from(months).join(' / ');
+  const vinsByDay = {};
+  ALL_INSPECTION_ROWS.forEach(r=>{
+    if(!r.serial) return;
+    const day = xl(r.serial).getDate();
+    if(!stationsByDay[day] || !stationsByDay[day].has(r.station)) return;
+    (vinsByDay[day] || (vinsByDay[day] = new Set())).add(r.vin);
+  });
+  Object.keys(vinsByDay).forEach(day=>{ defectTrendThroughput[day] = vinsByDay[day].size; });
+  const stationLabel = stationsSeen.size > 1 ? 'its station' : [...stationsSeen][0];
+  return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
+    <div class="emptynote" style="margin-bottom:6px"><span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(stationLabel)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed</div>
+    <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
+}
+function renderParetoChart(svgId, items, onBarClick){
+  const svg = document.getElementById(svgId);
+  if(!svg) return;
+  const sorted = items.filter(it=>it.count>0);
+  if(!sorted.length){ svg.innerHTML = ''; return; }
+  const total = sorted.reduce((s,it)=>s+it.count,0);
+  let running = 0;
+  const withCum = sorted.map(it=>{ running += it.count; return {...it, cumPct: running/total*100}; });
+  const W = 700, H = 280, padL = 40, padR = 40, padT = 16, padB = 70;
+  const n = withCum.length;
+  const bandW = (W-padL-padR) / n;
+  const maxCount = Math.max(1, ...withCum.map(it=>it.count));
+  const yCount = v => H-padB - (v/maxCount) * (H-padT-padB);
+  const yPct = p => H-padB - (p/100) * (H-padT-padB);
+  const xCenter = i => padL + bandW*i + bandW/2;
+  const parts = [];
+  // gridlines for the 0-100% axis (right side)
+  [0,20,40,60,80,100].forEach(p=>{
+    const yy = yPct(p);
+    parts.push(`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`);
+    parts.push(`<text x="${(W-padR+6).toFixed(1)}" y="${(yy+3).toFixed(1)}" font-size="10" fill="var(--muted)">${p}%</text>`);
+  });
+  // 80% reference line
+  parts.push(`<line x1="${padL}" y1="${yPct(80).toFixed(1)}" x2="${W-padR}" y2="${yPct(80).toFixed(1)}" stroke="#c0392b" stroke-width="1" stroke-dasharray="4,3"/>`);
+  // bars
+  withCum.forEach((it,i)=>{
+    const barW = bandW*0.6;
+    const bx = xCenter(i) - barW/2;
+    const by = yCount(it.count);
+    parts.push(`<rect class="paretobar" data-i="${i}" x="${bx.toFixed(1)}" y="${by.toFixed(1)}" width="${barW.toFixed(1)}" height="${(H-padB-by).toFixed(1)}" fill="var(--bad)" style="cursor:pointer"/>`);
+    parts.push(`<text x="${xCenter(i).toFixed(1)}" y="${(by-6).toFixed(1)}" font-size="11" text-anchor="middle" fill="var(--ink)" font-weight="600">${it.count}</text>`);
+    const label = it.label.length > 14 ? it.label.slice(0,13)+'…' : it.label;
+    parts.push(`<text x="${xCenter(i).toFixed(1)}" y="${(H-padB+16).toFixed(1)}" font-size="10" text-anchor="end" fill="var(--muted)" transform="rotate(-35 ${xCenter(i).toFixed(1)} ${(H-padB+16).toFixed(1)})">${escapeHtml(label)}</text>`);
+  });
+  // cumulative % line
+  const pts = withCum.map((it,i)=>`${xCenter(i).toFixed(1)},${yPct(it.cumPct).toFixed(1)}`).join(' ');
+  parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
+  withCum.forEach((it,i)=>{
+    parts.push(`<circle cx="${xCenter(i).toFixed(1)}" cy="${yPct(it.cumPct).toFixed(1)}" r="3.5" fill="var(--accent)"/>`);
+  });
+  svg.innerHTML = parts.join('');
+  svg.querySelectorAll('.paretobar').forEach(el=>{
+    el.addEventListener('click', ()=>onBarClick(withCum[+el.dataset.i]));
+  });
+}
+function renderDefectTrendChart(){
+  const svg = document.getElementById('defTrendSvg');
+  if(!svg) return;
+  const start = 1, end = 31;
+  const W = 820, H = 170, padL = 36, padR = 18, padT = 22, padB = 24;
+  const maxCount = Math.max(1, ...Object.values(defectTrendCounts));
+  const x = day => padL + ((day-start)/(end-start||1)) * (W-padL-padR);
+  const y = v => H-padB - (v/maxCount) * (H-padT-padB);
+  const parts = [];
+  const ticks = Math.min(maxCount, 5);
+  for(let t=0;t<=ticks;t++){
+    const v = Math.round(maxCount*t/ticks), yy = y(v);
+    parts.push(`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`);
+    parts.push(`<text x="${padL-6}" y="${(yy+3).toFixed(1)}" font-size="12" text-anchor="end" fill="var(--muted)">${v}</text>`);
+  }
+  for(let d=start; d<=end; d++){
+    parts.push(`<text x="${x(d).toFixed(1)}" y="${H-6}" font-size="12" text-anchor="middle" fill="var(--muted)">${d}</text>`);
+  }
+  const daysInRange = [];
+  for(let d=start; d<=end; d++) if(defectTrendCounts[d]!=null) daysInRange.push(d);
+  if(daysInRange.length){
+    const pts = daysInRange.map(d=>`${x(d).toFixed(1)},${y(defectTrendCounts[d]).toFixed(1)}`).join(' ');
+    parts.push(`<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>`);
+    daysInRange.forEach(d=>{
+      const passed = defectTrendThroughput[d];
+      const cy = y(defectTrendCounts[d]);
+      parts.push(`<circle cx="${x(d).toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="var(--accent)"/>`);
+      parts.push(`<text x="${x(d).toFixed(1)}" y="${(cy-10).toFixed(1)}" font-size="12" text-anchor="middle" fill="var(--ink)" font-weight="600">${defectTrendCounts[d]}</text>`);
+      if(passed) parts.push(`<text x="${x(d).toFixed(1)}" y="${(cy+16).toFixed(1)}" font-size="10" text-anchor="middle" fill="#c0392b" font-weight="600">${passed}</text>`);
+    });
+  }
+  svg.innerHTML = parts.join('');
+}
+let defannotPhotos = []; // {url} for existing, {file} for newly chosen, pending upload on Save
+let defannotPhotoIdx = 0;
+function defannotPhotoBoxHtml(canEdit){
+  const n = defannotPhotos.length;
+  const cur = n ? defannotPhotos[defannotPhotoIdx] : null;
+  const src = cur ? (cur.file ? cur._preview : cur.url) : '';
+  return `
+    <div class="defannot-photo">
+      <div class="defannot-photobox">
+        ${n ? `<img id="defannotPhotoImg" src="${escapeHtml(src)}" alt="Defect photo">` : `<div class="emptynote" id="defannotNoPhoto">No photo yet</div>`}
+        ${n > 1 ? `
+          <button type="button" class="photonavbtn left" id="defannotPhotoPrev" title="Previous photo">&#8249;</button>
+          <button type="button" class="photonavbtn right" id="defannotPhotoNext" title="Next photo">&#8250;</button>
+          <span class="photonavcount">${defannotPhotoIdx+1} / ${n}</span>` : ''}
+      </div>
+      ${canEdit ? `<label class="filebtn small">Choose photo<input type="file" id="defannotPhotoInput" accept="image/*"></label>` : ''}
+      ${canEdit && n ? `<button type="button" class="clearbtn" id="defannotPhotoClear">Remove this photo</button>` : ''}
+    </div>`;
+}
+function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
+  const panel = document.getElementById('defectAnnotationPanel');
+  if(!annotKey){ panel.innerHTML = ''; panel.hidden = true; return; }
+  panel.hidden = false;
+  const a = DEFECT_ANNOTATIONS[annotKey] || {};
+  const canEdit = canWriteNow();
+  const isClosed = a.status === 'closed';
+  const existingUrls = (a.photo_urls && a.photo_urls.length) ? a.photo_urls : (a.photo_url ? [a.photo_url] : []);
+  defannotPhotos = existingUrls.map(url=>({url}));
+  defannotPhotoIdx = 0;
+  panel.innerHTML = `
+    ${defectTrendShellHtml(rows)}
+    <div class="defannot">
+      ${defannotPhotoBoxHtml(canEdit)}
+      <div class="defannot-fields">
+        <div class="defannot-statusrow">
+          <span class="statuspill ${isClosed?'closed':'open'}" id="defannotStatusPill">${isClosed?'Closed':'Open'}</span>
+          ${canEdit ? `<button type="button" class="clearbtn" id="defannotStatusToggle">Mark ${isClosed?'Open':'Closed'}</button>` : ''}
+          ${a.updated_by ? `<span class="emptynote">Last updated by ${escapeHtml(a.updated_by)}${a.updated_at ? ' on '+fmtDate(new Date(a.updated_at)) : ''}</span>` : ''}
+        </div>
+        <label for="defannotRootCause">Root Cause Analysis</label>
+        <textarea id="defannotRootCause" ${canEdit?'':'disabled'} placeholder="${canEdit?'What caused this defect…':'Not recorded yet'}">${escapeHtml(a.root_cause||'')}</textarea>
+        <label for="defannotCorrective">Corrective Action / Preventive Action</label>
+        <textarea id="defannotCorrective" ${canEdit?'':'disabled'} placeholder="${canEdit?'What was done to fix/prevent it…':'Not recorded yet'}">${escapeHtml(a.corrective_action||'')}</textarea>
+        ${canEdit ? `<button type="button" class="markbtn" id="defannotSave" style="align-self:flex-start">Save</button>` : ''}
+      </div>
+    </div>`;
+  renderDefectTrendChart();
+  wireDefannotPhotoBox();
+  if(!canEdit) return;
+
+  let pendingStatus = a.status || 'open';
+  document.getElementById('defannotStatusToggle').addEventListener('click', ()=>{
+    pendingStatus = pendingStatus === 'closed' ? 'open' : 'closed';
+    const pill = document.getElementById('defannotStatusPill');
+    pill.textContent = pendingStatus === 'closed' ? 'Closed' : 'Open';
+    pill.className = `statuspill ${pendingStatus}`;
+    document.getElementById('defannotStatusToggle').textContent = `Mark ${pendingStatus==='closed'?'Open':'Closed'}`;
+  });
+
+  document.getElementById('defannotSave').addEventListener('click', async ()=>{
+    const btn = document.getElementById('defannotSave');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const finalUrls = [];
+    for(const p of defannotPhotos){
+      if(p.url){ finalUrls.push(p.url); continue; }
+      const compressed = await compressImageToLimit(p.file, 500 * 1024);
+      const path = `${annotKey.replace(/[^A-Z0-9]+/gi,'_').slice(0,80)}/${Date.now()}_${finalUrls.length}.jpg`;
+      const { error: upErr } = await sb.storage.from('defect-photos').upload(path, compressed, { contentType: 'image/jpeg' });
+      if(upErr){ alert(`Photo upload failed: ${upErr.message}`); btn.disabled=false; btn.textContent='Save'; return; }
+      finalUrls.push(sb.storage.from('defect-photos').getPublicUrl(path).data.publicUrl);
+    }
+    const row = {
+      description_key: annotKey,
+      description: displayDesc,
+      photo_url: finalUrls[0] || null,
+      photo_urls: finalUrls,
+      root_cause: document.getElementById('defannotRootCause').value.trim() || null,
+      corrective_action: document.getElementById('defannotCorrective').value.trim() || null,
+      status: pendingStatus,
+      updated_by: currentSession.user.email,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('defect_annotations').upsert(row, { onConflict: 'description_key' });
+    btn.disabled = false; btn.textContent = 'Save';
+    if(error){ alert(`Couldn't save: ${error.message}`); return; }
+    await loadDefectAnnotations();
+    logActivity('defect_annotation_save', displayDesc.slice(0,120));
+    renderDefectAnnotationPanel(annotKey, displayDesc, rows);
+  });
+}
+function rerenderDefannotPhotoBox(canEdit){
+  const box = document.querySelector('#defectAnnotationPanel .defannot-photo');
+  if(!box) return;
+  box.outerHTML = defannotPhotoBoxHtml(canEdit);
+  wireDefannotPhotoBox();
+}
+const photoLightbox = document.getElementById('photoLightbox');
+function renderPhotoLightbox(){
+  const n = defannotPhotos.length;
+  if(!n){ photoLightbox.hidden = true; return; }
+  const cur = defannotPhotos[defannotPhotoIdx];
+  document.getElementById('photoLightboxImg').src = cur.file ? cur._preview : cur.url;
+  document.getElementById('photoLightboxCount').textContent = n > 1 ? `${defannotPhotoIdx+1} / ${n}` : '';
+  document.getElementById('photoLightboxPrev').hidden = n <= 1;
+  document.getElementById('photoLightboxNext').hidden = n <= 1;
+}
+function openPhotoLightbox(){
+  if(!defannotPhotos.length) return;
+  photoLightbox.hidden = false;
+  renderPhotoLightbox();
+}
+function closePhotoLightbox(){ photoLightbox.hidden = true; }
+document.getElementById('photoLightboxClose').addEventListener('click', closePhotoLightbox);
+photoLightbox.addEventListener('click', e=>{ if(e.target===photoLightbox) closePhotoLightbox(); });
+document.getElementById('photoLightboxPrev').addEventListener('click', ()=>{
+  defannotPhotoIdx = (defannotPhotoIdx - 1 + defannotPhotos.length) % defannotPhotos.length;
+  renderPhotoLightbox();
+  rerenderDefannotPhotoBox(canWriteNow());
+});
+document.getElementById('photoLightboxNext').addEventListener('click', ()=>{
+  defannotPhotoIdx = (defannotPhotoIdx + 1) % defannotPhotos.length;
+  renderPhotoLightbox();
+  rerenderDefannotPhotoBox(canWriteNow());
+});
+document.addEventListener('keydown', e=>{
+  if(photoLightbox.hidden) return;
+  if(e.key === 'Escape') closePhotoLightbox();
+  if(e.key === 'ArrowLeft') document.getElementById('photoLightboxPrev').click();
+  if(e.key === 'ArrowRight') document.getElementById('photoLightboxNext').click();
+});
+function wireDefannotPhotoBox(){
+  const canEdit = canWriteNow();
+  const prev = document.getElementById('defannotPhotoPrev');
+  if(prev) prev.addEventListener('click', ()=>{ defannotPhotoIdx = (defannotPhotoIdx - 1 + defannotPhotos.length) % defannotPhotos.length; rerenderDefannotPhotoBox(canEdit); });
+  const next = document.getElementById('defannotPhotoNext');
+  if(next) next.addEventListener('click', ()=>{ defannotPhotoIdx = (defannotPhotoIdx + 1) % defannotPhotos.length; rerenderDefannotPhotoBox(canEdit); });
+  const img = document.getElementById('defannotPhotoImg');
+  if(img) img.addEventListener('click', ()=>openPhotoLightbox());
+  if(!canEdit) return;
+  const photoInput = document.getElementById('defannotPhotoInput');
+  if(photoInput) photoInput.addEventListener('change', ()=>{
+    const file = photoInput.files[0];
+    if(!file) return;
+    // Synchronous (createObjectURL, not FileReader.readAsDataURL) so the
+    // photo is in defannotPhotos before this handler returns — otherwise a
+    // quick tap of Save right after picking a large phone-camera photo could
+    // fire before the async FileReader finished, silently saving zero photos.
+    defannotPhotos.push({ file, _preview: URL.createObjectURL(file) });
+    defannotPhotoIdx = defannotPhotos.length - 1;
+    rerenderDefannotPhotoBox(canEdit);
+  });
+  const photoClear = document.getElementById('defannotPhotoClear');
+  if(photoClear) photoClear.addEventListener('click', ()=>{
+    defannotPhotos.splice(defannotPhotoIdx, 1);
+    if(defannotPhotoIdx >= defannotPhotos.length) defannotPhotoIdx = Math.max(0, defannotPhotos.length - 1);
+    rerenderDefannotPhotoBox(canEdit);
+  });
 }
 document.getElementById('signinSubmit').addEventListener('click', async ()=>{
   if(!sb) return;
@@ -1346,6 +1698,11 @@ function defectsForVin(vinSuffix){ return DEFECTS.filter(d=>d[0]===vinSuffix); }
 // used as the denominator for "clean units", since the fleet has plenty of
 // units this report simply hasn't reached yet.
 const INSPECTED_VINS = new Set(["900001","900002","900003","900004","900005","900006","900007","900008","900009","900010","900011","900012","900013","900014","900015","900016","900017","900018","900019","900020","900022","900023","900024","900025","900026","900027","900028","900029","900030","900091","900092","900093","900094","900095","900096","900097","900100","900101","900102","900106","900107","900109","900110","900112","900114","900115","900116","900117","900120"]);
+// Every inspected row (defect or clean "NIL") from both defect uploads, kept
+// separately from DEFECTS (which only holds rows with an actual defect) so
+// the per-defect trend chart can show how many units passed a station on a
+// given day, not just how many had this specific defect that day.
+let ALL_INSPECTION_ROWS = [];
 
 // The 21 sub-stage items, grouped exactly as the shop floor tracks them. These
 // only apply once a unit reaches Inspection In — that's what "kicks them on".
@@ -1474,31 +1831,47 @@ const TODAY = new Date(); // real "today" in a live deployment, unlike the fixed
 // quality/dimensions down until it fits the target, so Issue photos don't
 // eat Supabase storage. Falls back to the original file if the browser
 // can't decode it (createImageBitmap unsupported/rejected).
+async function loadDrawableImage(file){
+  try{ return await createImageBitmap(file); }
+  catch(e){
+    // Safari/older browsers, or a format createImageBitmap rejects (some
+    // HEIC variants) — fall back to a plain <img>, which decodes far more
+    // formats, instead of silently skipping compression altogether.
+    const url = URL.createObjectURL(file);
+    try{
+      const img = new Image();
+      await new Promise((resolve, reject)=>{ img.onload = resolve; img.onerror = reject; img.src = url; });
+      return img;
+    } finally { URL.revokeObjectURL(url); }
+  }
+}
 async function compressImageToLimit(file, maxBytes){
-  let bitmap;
-  try{ bitmap = await createImageBitmap(file); }
-  catch(e){ return file; }
-  let width = bitmap.width, height = bitmap.height;
+  let source;
+  try{ source = await loadDrawableImage(file); }
+  catch(e){ return file; } // genuinely undecodable — upload the original rather than nothing
+  let width = source.width || source.naturalWidth, height = source.height || source.naturalHeight;
+  if(!width || !height) return file;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   async function renderAt(w, h, quality){
     canvas.width = w; canvas.height = h;
-    ctx.drawImage(bitmap, 0, 0, w, h);
+    ctx.drawImage(source, 0, 0, w, h);
     return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
   }
   let quality = 0.85;
   let blob = await renderAt(width, height, quality);
-  while(blob && blob.size > maxBytes && quality > 0.35){
-    quality -= 0.15;
+  while(blob && blob.size > maxBytes && quality > 0.3){
+    quality -= 0.1;
     blob = await renderAt(width, height, quality);
   }
-  while(blob && blob.size > maxBytes && width > 480 && height > 480){
-    width = Math.round(width * 0.8);
-    height = Math.round(height * 0.8);
+  while(blob && blob.size > maxBytes && width > 320 && height > 320){
+    width = Math.round(width * 0.75);
+    height = Math.round(height * 0.75);
+    quality = 0.7;
     blob = await renderAt(width, height, quality);
   }
-  bitmap.close && bitmap.close();
-  return blob || file;
+  source.close && source.close();
+  return (blob && blob.size <= maxBytes) ? blob : (blob || file);
 }
 
 // Days spent in the unit's CURRENT stage — not days since some fixed ERP
@@ -1565,6 +1938,16 @@ const ALL_UNITS = ROWS.map(r=>{
     biInsp:xl(bi), aiInsp:xl(ai), afInsp:xl(af), ustk:xl(us), wipDays};
 });
 applyAdvancePosted(ALL_UNITS);
+
+// Kept in sync with ALL_UNITS everywhere it's rebuilt — avoids an O(n) scan
+// per lookup in hot paths (table sorting, per-row rendering) that used to
+// call ALL_UNITS.find(...) once per row/comparison.
+const UNIT_BY_SUFFIX = new Map();
+function rebuildUnitBySuffix(){
+  UNIT_BY_SUFFIX.clear();
+  ALL_UNITS.forEach(u=>{ if(u.vinSuffix) UNIT_BY_SUFFIX.set(u.vinSuffix, u); });
+}
+rebuildUnitBySuffix();
 
 function currentUnits(){
   return ALL_UNITS.filter(u=>included.has(effectiveStatusCode(u)));
@@ -1847,6 +2230,7 @@ function renderTable(){
   rowcountEl.textContent = rows.length + ' / ' + units.length + ' units in scope';
   const canSelect = canManageAdvancePosted();
   document.getElementById('apSelectAllHead').hidden = !canSelect;
+  document.getElementById('apReconBtn').hidden = !canSelect;
   const visibleVins = new Set(rows.map(u=>u.vin).filter(Boolean));
   // Drop anything selected that's scrolled out of the current filter/scope
   // so the count never silently includes rows you can no longer see.
@@ -2617,6 +3001,42 @@ document.getElementById('apUnmarkBtn').addEventListener('click', ()=>{
   setAdvancePosted([...apSelectedVins], false);
 });
 
+// ---------- Advance Posted vs. physical reconciliation report ----------
+function stageLabelFor(code){ return code ? (AP_STATUS_LABELS[code] || (ALL_STAGES.find(s=>s.code===code)||{}).label || code) : null; }
+function renderApReconReport(){
+  const rows = ALL_UNITS.filter(u=>u.advancePosted).map(u=>{
+    const latest = (u.movements && u.movements[0]) || null;
+    const sapLabel = stageLabelFor(u.statusCode);
+    const realLabel = latest ? stageLabelFor(latest.status_code) : null;
+    return {
+      vin: u.vin, sapCode: u.statusCode, sapLabel,
+      realCode: latest ? latest.status_code : null, realLabel,
+      loggedOn: latest ? latest.moved_at : null,
+      flaggedBy: u.apFlaggedBy, flaggedAt: u.apSetAt,
+      mismatch: !latest || latest.status_code !== u.statusCode,
+    };
+  }).sort((a,b)=> (b.mismatch - a.mismatch) || (a.vin||'').localeCompare(b.vin||''));
+  const body = document.getElementById('apReconBody');
+  const err = document.getElementById('apReconError');
+  err.hidden = rows.length > 0;
+  err.textContent = 'No units are currently flagged Advance Posted.';
+  body.innerHTML = rows.map(r=>`<tr style="${r.mismatch?'background:var(--bad-soft,#fdecea)':''}">
+    <td><span class="vin">${escapeHtml(r.vin||'')}</span></td>
+    <td>${escapeHtml(r.sapLabel||'—')}</td>
+    <td>${r.realLabel ? escapeHtml(r.realLabel) : '<span class="emptynote">Not logged yet</span>'}</td>
+    <td>${r.loggedOn ? escapeHtml(r.loggedOn) : ''}</td>
+    <td>${escapeHtml(r.flaggedBy||'')}</td>
+    <td>${r.flaggedAt ? fmtDate(new Date(r.flaggedAt)) : ''}</td>
+  </tr>`).join('');
+}
+const apReconOverlay = document.getElementById('apReconOverlay');
+document.getElementById('apReconBtn').addEventListener('click', ()=>{
+  renderApReconReport();
+  apReconOverlay.hidden = false;
+});
+document.getElementById('apReconClose').addEventListener('click', ()=>{ apReconOverlay.hidden = true; });
+apReconOverlay.addEventListener('click', e=>{ if(e.target===apReconOverlay) apReconOverlay.hidden = true; });
+
 // ---------- tabs ----------
 const tabbarEl = document.getElementById('tabbar');
 const tabRosterEl = document.getElementById('tabRoster');
@@ -2654,6 +3074,7 @@ const ACTION_LABELS = {
   issue_resolve: 'Issue resolved',
   issue_reopen: 'Issue reopened',
   checklist_count_clear: 'Repeat count cleared',
+  defect_annotation_save: 'Defect root cause/photo updated',
   advance_posted_flag: 'Advance posted',
   advance_posted_unflag: 'Advance posted flag removed',
   advance_posted_status: 'Advance-posted location updated',
@@ -2800,7 +3221,7 @@ function renderAnalysis(){
   const byVin = {};
   DEFECTS.forEach(d=>{ byVin[d[0]] = (byVin[d[0]]||0) + 1; });
   const vinRows = [...INSPECTED_VINS].map(vinSuffix=>{
-    const u = ALL_UNITS.find(x=>x.vinSuffix===vinSuffix);
+    const u = UNIT_BY_SUFFIX.get(vinSuffix);
     return {u, vinSuffix, count: byVin[vinSuffix]||0};
   }).sort((a,b)=>b.count-a.count);
 
@@ -2983,8 +3404,10 @@ function renderAnalysis(){
   }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">No defects recorded.</div></td></tr>`;
   topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
     const t = topDefects[+tr.dataset.i];
-    tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows));
+    tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} occurrence${t.count===1?'':'s'} at ${t.station}`, 'defects', t.rows, t.desc.trim().toUpperCase()));
   });
+  renderParetoChart('paretoDescSvg', topDefects.map(t=>({label:t.desc, count:t.count, rows:t.rows, station:t.station})),
+    t=>openDefectDetail(t.label, `${t.count} occurrence${t.count===1?'':'s'} at ${t.station}`, 'defects', t.rows, t.label.trim().toUpperCase()));
 
   // ---- Defects by unit: VIN ascending, with a running S. No. (click straight through to that VIN's card) ----
   const vinRowsAscending = [...vinRows].sort((a,b)=>
@@ -3002,6 +3425,34 @@ function renderAnalysis(){
   document.getElementById('defectsByVinBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
     if(!tr.dataset.sr) return;
     tr.style.cursor = 'pointer';
+    tr.addEventListener('click', ()=>{
+      tabbarEl.querySelector('[data-tab="roster"]').click();
+      openDrawer(tr.dataset.vin, +tr.dataset.sr);
+    });
+  });
+
+  // ---- Repeat offenders: units with defects at 2+ distinct stations ----
+  const repeatOffenders = vinRows
+    .map(r=>{
+      const rows = defectsByVin[r.vinSuffix] || [];
+      const stations = [...new Set(rows.map(d=>d[1]))];
+      return {...r, stations, rows};
+    })
+    .filter(r=>r.stations.length >= 2)
+    .sort((a,b)=> b.stations.length - a.stations.length || b.count - a.count);
+  document.getElementById('repeatOffendersBody').innerHTML = repeatOffenders.map((r,i)=>{
+    const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
+    return `<tr data-vin="${escapeHtml(r.u?r.u.vin:'')}" data-sr="${r.u?r.u.sr:''}" style="cursor:pointer">
+      <td>${i+1}</td>
+      <td><span class="vin">${escapeHtml(r.u ? r.u.vin : r.vinSuffix)}</span></td>
+      <td>${swatch}${escapeHtml(r.u ? (r.u.colorCode||'') : '')}</td>
+      <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
+      <td>${escapeHtml(r.stations.join(', '))}</td>
+      <td>${r.count}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6"><div class="emptynote">No unit has defects at 2 or more stations.</div></td></tr>`;
+  document.getElementById('repeatOffendersBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
+    if(!tr.dataset.sr) return;
     tr.addEventListener('click', ()=>{
       tabbarEl.querySelector('[data-tab="roster"]').click();
       openDrawer(tr.dataset.vin, +tr.dataset.sr);
@@ -3220,11 +3671,12 @@ function rebuildAllUnits(){
   ALL_UNITS.length = 0;
   ALL_UNITS.push(...mapped);
   applyAdvancePosted(ALL_UNITS);
+  rebuildUnitBySuffix();
 }
 async function initData(){
   if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
   const [prodRows, defRows, , manualRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase(), loadUnitRowsCache(), loadManualDefectsFromSupabase()]);
-  await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements()]);
+  await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements(), loadDefectAnnotations()]);
   if(prodRows){ // null only when not configured or the fetch failed — an empty array is authoritative
     ROWS.length = 0; ROWS.push(...prodRows);
     rebuildAllUnits();
@@ -3234,6 +3686,7 @@ async function initData(){
   if(defRows || manualRows){
     DEFECTS.length = 0;
     INSPECTED_VINS.clear();
+    ALL_INSPECTION_ROWS.length = 0;
     // Combined into one list — the VIN-wise defect report and the manual
     // defect sheet both describe the same real defects, just from two
     // different upload sources, so every existing defect view (station
@@ -3241,10 +3694,12 @@ async function initData(){
     if(defRows){
       DEFECTS.push(...defRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, null, r.updated_at||null]));
       new Set(defRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
+      ALL_INSPECTION_ROWS.push(...defRows.map(r=>({vin:r.vin, station:r.station, serial:r.defect_serial})));
     }
     if(manualRows){
       DEFECTS.push(...manualRows.filter(r=>r.has_defect).map(r=>[r.vin, r.station, r.description, r.defect_serial, r.department||null, r.severity||null, r.updated_at||null]));
       new Set(manualRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
+      ALL_INSPECTION_ROWS.push(...manualRows.map(r=>({vin:r.vin, station:r.station, serial:r.defect_serial})));
     }
   }
   renderStagePicker(); // its per-stage counts read ROWS directly — stale otherwise
@@ -3696,7 +4151,7 @@ document.getElementById('clearProductionBtn').addEventListener('click', async ()
     const s = String(cell).trim().toUpperCase();
     if(fullVinRe.test(s)) return s;
     if(suffixRe.test(s)){
-      const u = ALL_UNITS.find(x=>x.vinSuffix===s);
+      const u = UNIT_BY_SUFFIX.get(s);
       return u ? u.vin : `PMHRM81ASTN${s}`; // best-effort reconstruction if not in the roster yet
     }
     return null;
