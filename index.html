@@ -375,6 +375,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <div class="uploadlbl">LX3 Production Data <span class="emptynote">(LX3 Data.xlsx)</span></div>
         <label class="filebtn">Choose file<input type="file" id="uploadProduction" accept=".xlsx"></label>
         <button type="button" class="iconbtn" id="downloadProductionBtn" title="Admin only: download the most recently uploaded file as-is" hidden>Download raw file</button>
+        <button type="button" class="dangerbtn" id="clearProductionBtn" title="Admin only: delete all uploaded production data" hidden>Clear</button>
         <span id="uploadProductionStatus" class="emptynote"></span>
       </div>
       <div class="uploadrow">
@@ -780,6 +781,8 @@ function renderAuthArea(){
     if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = true;
     const downloadProductionBtnEl0 = document.getElementById('downloadProductionBtn');
     if(downloadProductionBtnEl0) downloadProductionBtnEl0.hidden = true;
+    const clearProductionBtnEl0 = document.getElementById('clearProductionBtn');
+    if(clearProductionBtnEl0) clearProductionBtnEl0.hidden = true;
     authGate.hidden = true; mainContent.hidden = false; // no Supabase configured — nothing to gate behind
     return;
   }
@@ -806,6 +809,8 @@ function renderAuthArea(){
     if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = currentRole !== 'admin';
     const downloadProductionBtnEl = document.getElementById('downloadProductionBtn');
     if(downloadProductionBtnEl) downloadProductionBtnEl.hidden = currentRole !== 'admin';
+    const clearProductionBtnEl = document.getElementById('clearProductionBtn');
+    if(clearProductionBtnEl) clearProductionBtnEl.hidden = currentRole !== 'admin';
     authGate.hidden = true;
     mainContent.hidden = false;
   } else {
@@ -820,6 +825,8 @@ function renderAuthArea(){
     if(clearManualDefectsBtnEl) clearManualDefectsBtnEl.hidden = true;
     const downloadProductionBtnEl2 = document.getElementById('downloadProductionBtn');
     if(downloadProductionBtnEl2) downloadProductionBtnEl2.hidden = true;
+    const clearProductionBtnEl2 = document.getElementById('clearProductionBtn');
+    if(clearProductionBtnEl2) clearProductionBtnEl2.hidden = true;
     authGate.hidden = false;
     mainContent.hidden = true;
   }
@@ -3601,6 +3608,28 @@ function wireClearButton(btnId, statusId, label, tables){
 }
 wireClearButton('clearDefectsBtn', 'uploadDefectsStatus', 'LX3 defect report', [{table:'defect_rows', col:'id'}]);
 wireClearButton('clearManualDefectsBtn', 'uploadManualDefectsStatus', 'manual defect sheet', [{table:'manual_defects', col:'id'}, {table:'manual_vehicle_status', col:'vin'}]);
+// Not using wireClearButton here: loadProductionFromSupabase() treats an
+// empty result as "no new upload, keep showing the last-known roster" —
+// exactly right for an upload that returned nothing, but it would make
+// this Clear button look like it did nothing. Explicitly empty ROWS/
+// ALL_UNITS ourselves instead of relying on the normal initData() path.
+document.getElementById('clearProductionBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('clearProductionBtn');
+  const statusEl = document.getElementById('uploadProductionStatus');
+  if(currentRole !== 'admin') return; // belt-and-suspenders — button is hidden for non-admins anyway
+  if(!confirm('Delete all uploaded production data? This cannot be undone.')) return;
+  btn.disabled = true;
+  statusEl.textContent = 'Clearing…';
+  const { error } = await sb.from('production_rows').delete().not('batch', 'is', null);
+  if(error){ statusEl.textContent = 'Clear failed: ' + error.message; btn.disabled = false; return; }
+  ROWS.length = 0;
+  rebuildAllUnits();
+  renderStagePicker();
+  renderAll();
+  statusEl.textContent = 'Cleared — no production data remains.';
+  logActivity('data_clear', 'Cleared all production data');
+  btn.disabled = false;
+});
 
 // Second way to flag Advance Posted units (alongside the Units table's
 // checkbox selection): upload the month-end physical status/location list
