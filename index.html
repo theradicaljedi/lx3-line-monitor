@@ -204,7 +204,7 @@ th.sortable:hover{color:var(--ink)}
 .aptag{font-size:8.5px;font-weight:700;letter-spacing:.03em;background:var(--warn);color:#fff;border-radius:4px;padding:1px 4px;margin-left:4px;vertical-align:1px}
 .badge.apbadge-pending{background:var(--warn-soft);color:var(--warn)}
 .apbanner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:8px 12px;font-size:12.5px;margin-bottom:12px}
-.apbanner select{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:12.5px}
+.apbanner select,.apbanner input[type=date]{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:12.5px}
 .vqmini{display:flex;gap:3px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
 .dot.on{background:var(--good)}
@@ -1346,6 +1346,11 @@ const ALL_STAGES = [
   {code:"SOLD", label:"Sold", color:"var(--accent)"},
 ];
 const DEFAULT_INCLUDED = new Set(["3010","4000","4010","USTK","SOLD"]);
+// Clearer wording for the Advance Posted secondary-status dropdown than the
+// global "QC OK / PDI pending" label — production team thinks of it as
+// "Inspection Out", the counterpart to "Inspection In" they're picking
+// from the same list.
+const AP_STATUS_LABELS = { "4010": "Inspection Out" };
 
 function loadIncluded(){
   try{
@@ -1621,7 +1626,8 @@ document.querySelectorAll('#unitsTable th.sortable').forEach(th=>{
 function stageBadgeHtml(u){
   if(u.advancePosted){
     if(u.secondaryStage){
-      return `<span class="badge apbadge" style="background:color-mix(in srgb, ${u.secondaryStage.color} 16%, transparent);color:${u.secondaryStage.color}" title="SAP shows ${escapeHtml(u.stage.label)} (advance posted for invoicing) — actual location tracked manually">${escapeHtml(u.secondaryStage.label)}<span class="aptag">AP</span></span>`;
+      const label = AP_STATUS_LABELS[u.secondaryStage.code] || u.secondaryStage.label;
+      return `<span class="badge apbadge" style="background:color-mix(in srgb, ${u.secondaryStage.color} 16%, transparent);color:${u.secondaryStage.color}" title="SAP shows ${escapeHtml(u.stage.label)} (advance posted for invoicing) — actual location tracked manually">${escapeHtml(label)}<span class="aptag">AP</span></span>`;
     }
     return `<span class="badge apbadge-pending" title="SAP shows ${escapeHtml(u.stage.label)} (advance posted for invoicing) — actual location not yet set">Advance Posted<span class="aptag">AP</span></span>`;
   }
@@ -2240,11 +2246,12 @@ function openDrawer(vin, sr){
       <button class="closebtn" id="closeBtn">&times;</button>
     </div>
     ${u.advancePosted ? `<div class="apbanner">
-      <span>&#9888; Advance Posted &mdash; SAP shows <strong>${escapeHtml(u.stage.label)}</strong> for invoicing only. Set this unit's real location:</span>
+      <span>&#9888; Advance Posted &mdash; SAP shows <strong>${escapeHtml(u.stage.label)}</strong> for invoicing only. Set this unit's real location and when it reached it:</span>
       <select id="apStatusSelect">
         <option value="">&mdash; select actual location &mdash;</option>
-        ${ALL_STAGES.filter(s=>s.code!=='PLAN').map(s=>`<option value="${s.code}" ${u.secondaryStatusCode===s.code?'selected':''}>${s.label}</option>`).join('')}
+        ${ALL_STAGES.filter(s=>!['PLAN','USTK','SOLD'].includes(s.code)).map(s=>`<option value="${s.code}" ${u.secondaryStatusCode===s.code?'selected':''}>${AP_STATUS_LABELS[s.code]||s.label}</option>`).join('')}
       </select>
+      <input type="date" id="apStatusDate" value="${u.apSetAt ? new Date(u.apSetAt).toISOString().slice(0,10) : todayStr()}" max="${todayStr()}">
       ${canWriteNow() ? `<button type="button" class="markbtn" id="apStatusSave">Save</button><button type="button" class="clearbtn" id="apUnflagOne" title="Remove advance-posted flag">Unflag</button>` : ''}
     </div>` : ''}
     <div class="drawer-2col">
@@ -2292,9 +2299,10 @@ function openDrawer(vin, sr){
     apSaveBtn.onclick = async ()=>{
       const code = document.getElementById('apStatusSelect').value;
       if(!code) return;
+      const dateVal = document.getElementById('apStatusDate').value || todayStr();
       apSaveBtn.disabled = true;
       const { error } = await sb.from('advance_posted_units').update({
-        secondary_status: code, status_set_by: currentSession.user.email, status_set_at: new Date().toISOString(),
+        secondary_status: code, status_set_by: currentSession.user.email, status_set_at: new Date(dateVal+'T00:00:00').toISOString(),
       }).eq('vin', u.vin);
       apSaveBtn.disabled = false;
       if(error){ alert(`Couldn't save the actual location: ${error.message}`); return; }
