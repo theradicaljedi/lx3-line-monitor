@@ -382,6 +382,11 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <button type="button" class="dangerbtn" id="clearManualDefectsBtn" title="Admin only: delete all uploaded manual defect data" hidden>Clear</button>
         <span id="uploadManualDefectsStatus" class="emptynote"></span>
       </div>
+      <div class="uploadrow">
+        <div class="uploadlbl">Advance Posted VINs <span class="emptynote">(month-end SAP list &mdash; any sheet with VINs anywhere in it)</span></div>
+        <label class="filebtn">Choose file<input type="file" id="uploadAdvancePosted" accept=".xlsx"></label>
+        <span id="uploadAdvancePostedStatus" class="emptynote"></span>
+      </div>
     </div>
   </div>
 
@@ -3415,6 +3420,51 @@ function wireClearButton(btnId, statusId, label, tables){
 }
 wireClearButton('clearDefectsBtn', 'uploadDefectsStatus', 'LX3 defect report', [{table:'defect_rows', col:'id'}]);
 wireClearButton('clearManualDefectsBtn', 'uploadManualDefectsStatus', 'manual defect sheet', [{table:'manual_defects', col:'id'}, {table:'manual_vehicle_status', col:'vin'}]);
+
+// Second way to flag Advance Posted units (alongside the Units table's
+// checkbox selection): upload the month-end SAP list directly. The exact
+// layout of that export isn't fixed/known, so rather than requiring a
+// specific header row, this just scans every cell of every row for
+// anything that looks like a VIN (full 17-char VIN, or a bare 6-digit
+// suffix resolved against the current roster) and flags whatever it finds
+// — merging into, not replacing, whatever's already flagged, same as the
+// bulk "Mark Advance Posted" button.
+(function wireAdvancePostedUpload(){
+  const input = document.getElementById('uploadAdvancePosted');
+  const statusEl = document.getElementById('uploadAdvancePostedStatus');
+  const fullVinRe = /^[A-Z0-9]{17}$/;
+  const suffixRe = /^\d{6}$/;
+  input.addEventListener('change', async ()=>{
+    const file = input.files[0];
+    input.value = '';
+    if(!file) return;
+    if(!canWriteNow()){ statusEl.textContent = !sb ? 'Sign in first.' : !currentSession ? 'Sign in first.' : 'Viewers cannot upload data.'; return; }
+    statusEl.textContent = 'Reading file…';
+    let rows;
+    try{ rows = await readWorkbookRows(file); }
+    catch(e){ statusEl.textContent = 'Could not read this file: ' + e.message; return; }
+    const found = new Set();
+    let unresolvedSuffixes = 0;
+    rows.forEach(row=>{
+      (row||[]).forEach(cell=>{
+        if(cell==null) return;
+        const s = String(cell).trim().toUpperCase();
+        if(fullVinRe.test(s)){ found.add(s); return; }
+        if(suffixRe.test(s)){
+          const u = ALL_UNITS.find(x=>x.vinSuffix===s);
+          if(u && u.vin) found.add(u.vin); else unresolvedSuffixes++;
+        }
+      });
+    });
+    if(!found.size){
+      statusEl.textContent = 'No recognizable VINs found in this file.';
+      return;
+    }
+    statusEl.textContent = `Flagging ${found.size} unit(s)…`;
+    await setAdvancePosted([...found], true);
+    statusEl.textContent = `${found.size} unit(s) flagged as Advance Posted` + (unresolvedSuffixes ? ` (${unresolvedSuffixes} value(s) looked like a VIN suffix but didn't match any unit in the current data)` : '.');
+  });
+})();
 
 // Wire up auth state here, last — everything onAuthChanged/renderDrawerRow/
 // loadReport/renderAnalysis touch is now guaranteed to already be declared.
