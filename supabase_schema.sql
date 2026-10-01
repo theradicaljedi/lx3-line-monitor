@@ -297,7 +297,9 @@ create policy "issue_photos_delete" on storage.objects
 -- Upload (overwritten each time someone uploads a new one, mirroring how
 -- production_rows itself is fully replaced). Private bucket — unlike
 -- issue-photos, only admins may read/download it; editors can still
--- upload (same as they can write production_rows).
+-- upload (same as they can write production_rows), which also means
+-- editors need delete rights here (the app does an explicit remove, then
+-- insert, to replace the file — see note below on why not upsert).
 -- =====================================================================
 insert into storage.buckets (id, name, public)
 values ('production-uploads', 'production-uploads', false)
@@ -309,12 +311,16 @@ create policy "production_uploads_read" on storage.objects
 drop policy if exists "production_uploads_write" on storage.objects;
 create policy "production_uploads_write" on storage.objects
   for insert with check (bucket_id = 'production-uploads' and public.has_write_access((select auth.uid())));
+-- Not actually exercised by the app (it does remove+insert, not upsert —
+-- see the client-side comment on why), but kept complete/symmetric in
+-- case anything ever does update an object in place.
 drop policy if exists "production_uploads_update" on storage.objects;
 create policy "production_uploads_update" on storage.objects
-  for update using (bucket_id = 'production-uploads' and public.has_write_access((select auth.uid())));
+  for update using (bucket_id = 'production-uploads' and public.has_write_access((select auth.uid())))
+  with check (bucket_id = 'production-uploads' and public.has_write_access((select auth.uid())));
 drop policy if exists "production_uploads_delete" on storage.objects;
 create policy "production_uploads_delete" on storage.objects
-  for delete using (bucket_id = 'production-uploads' and public.is_admin((select auth.uid())));
+  for delete using (bucket_id = 'production-uploads' and public.has_write_access((select auth.uid())));
 
 -- =====================================================================
 -- Activity log — powers the "Activity Log" tab: who did what and when

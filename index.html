@@ -3393,9 +3393,16 @@ function wireUpload(inputId, statusId, { headerCol, headerKeyword, parseRow, tab
     // upload, same full-replace semantics as the parsed table above. Not
     // optional: if this fails, the upload as a whole is reported as
     // failed, even though the parsed data already landed, so it doesn't
-    // silently go un-noticed.
+    // silently go un-noticed. Explicit remove-then-insert rather than
+    // upload(upsert:true) — the latter compiles to an INSERT ... ON
+    // CONFLICT DO UPDATE, which Postgres RLS evaluates against BOTH the
+    // insert and update policies regardless of which path is actually
+    // taken, and tripped "new row violates row-level security policy"
+    // even for editors who should have access. A plain remove + insert
+    // only ever needs one matching policy per step.
     if(storeRawPath){
-      const { error: rawErr } = await sb.storage.from('production-uploads').upload(storeRawPath, file, { upsert: true, contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      await sb.storage.from('production-uploads').remove([storeRawPath]); // ignore "not found" if nothing's there yet
+      const { error: rawErr } = await sb.storage.from('production-uploads').upload(storeRawPath, file, { contentType: file.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       if(rawErr){
         statusEl.textContent = `Data loaded (${parsed.length} units), but saving the raw file failed: ${rawErr.message}`;
         if(activityAction) logActivity(activityAction, buildStatus(parsed) + ' (raw file not saved)');
