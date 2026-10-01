@@ -403,3 +403,49 @@ drop policy if exists "advance_posted_movements_update" on public.advance_posted
 create policy "advance_posted_movements_update" on public.advance_posted_movements for update using (public.can_manage_advance_posted((select auth.uid()))) with check (public.can_manage_advance_posted((select auth.uid())));
 drop policy if exists "advance_posted_movements_delete" on public.advance_posted_movements;
 create policy "advance_posted_movements_delete" on public.advance_posted_movements for delete using (public.can_manage_advance_posted((select auth.uid())));
+
+-- =====================================================================
+-- Defect annotations — quality root-cause tracking for recurring defect
+-- TYPES (e.g. "Water Leakage Due To Tailgate Weather Strip NPF"), not
+-- individual per-VIN occurrences. Keyed by the normalized defect
+-- description text (trim+uppercase, matching the same grouping key the
+-- "Most frequent defects" table already uses) rather than a row ID from
+-- defect_rows/manual_defects, since those tables are fully replaced on
+-- every upload — a row-ID foreign key would break on the next upload,
+-- but the description text is stable across re-uploads of the same
+-- recurring defect. Same access model as everything else: signed-in to
+-- read, editor/admin to write.
+-- =====================================================================
+create table if not exists public.defect_annotations (
+  id bigint generated always as identity primary key,
+  description_key text not null unique,
+  description text,          -- original-case example text, for display
+  photo_url text,
+  root_cause text,
+  corrective_action text,
+  status text not null default 'open' check (status in ('open','closed')),
+  updated_by text,
+  updated_at timestamptz not null default now()
+);
+alter table public.defect_annotations enable row level security;
+drop policy if exists "defect_annotations_read" on public.defect_annotations;
+create policy "defect_annotations_read" on public.defect_annotations for select using ((select auth.role()) = 'authenticated');
+drop policy if exists "defect_annotations_write" on public.defect_annotations;
+create policy "defect_annotations_write" on public.defect_annotations for insert with check (public.has_write_access((select auth.uid())));
+drop policy if exists "defect_annotations_update" on public.defect_annotations;
+create policy "defect_annotations_update" on public.defect_annotations for update using (public.has_write_access((select auth.uid()))) with check (public.has_write_access((select auth.uid())));
+drop policy if exists "defect_annotations_delete" on public.defect_annotations;
+create policy "defect_annotations_delete" on public.defect_annotations for delete using (public.has_write_access((select auth.uid())));
+
+-- Photos attached to a defect annotation. Public read (same as
+-- issue-photos, so <img> just works for anyone viewing the dashboard),
+-- editor/admin write.
+insert into storage.buckets (id, name, public)
+values ('defect-photos', 'defect-photos', true)
+on conflict (id) do nothing;
+drop policy if exists "defect_photos_read" on storage.objects;
+create policy "defect_photos_read" on storage.objects for select using (bucket_id = 'defect-photos');
+drop policy if exists "defect_photos_write" on storage.objects;
+create policy "defect_photos_write" on storage.objects for insert with check (bucket_id = 'defect-photos' and public.has_write_access((select auth.uid())));
+drop policy if exists "defect_photos_delete" on storage.objects;
+create policy "defect_photos_delete" on storage.objects for delete using (bucket_id = 'defect-photos' and public.has_write_access((select auth.uid())));

@@ -211,6 +211,17 @@ th.sortable:hover{color:var(--ink)}
 .apmovetable td{padding:4px 8px;background:var(--surface);border-top:1px solid var(--line)}
 .apmovetable tr:first-child td{border-top:none}
 .apaddrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
+
+.defannot{background:var(--surface-2);border-radius:10px;padding:14px;margin-bottom:14px;display:flex;gap:16px;flex-wrap:wrap}
+.defannot-fields{flex:1 1 260px;display:flex;flex-direction:column;gap:8px}
+.defannot-fields label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.defannot-fields textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:8px;font-family:inherit;font-size:12.5px;resize:vertical;min-height:50px;background:var(--surface);color:var(--ink)}
+.defannot-photo{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px}
+.defannot-photo img{display:block;max-width:160px;max-height:160px;border-radius:8px;object-fit:cover;background:var(--surface)}
+.defannot-statusrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.statuspill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:3px 10px;border-radius:20px}
+.statuspill.open{background:var(--bad-soft);color:var(--bad)}
+.statuspill.closed{background:var(--good-soft);color:var(--good)}
 .vqmini{display:flex;gap:3px}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--line)}
 .dot.on{background:var(--good)}
@@ -482,6 +493,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <button type="button" class="closebtn" id="defectDetailClose">&times;</button>
       </div>
       <div class="desc" id="defectDetailDesc"></div>
+      <div id="defectAnnotationPanel"></div>
       <div class="tablewrap detail-tablewrap">
         <table>
           <thead id="defectDetailHead"></thead>
@@ -756,6 +768,19 @@ const ADVANCE_POSTED_CACHE = {};
 // entry, not a separate stored field, so production planning can log as
 // many dated location changes as they want instead of overwriting one.
 const ADVANCE_POSTED_MOVEMENTS = {};
+// Quality root-cause tracking per defect TYPE (photo/root cause/corrective
+// action/status), keyed by the same normalized description text "Most
+// frequent defects" already groups by — not tied to any defect_rows/
+// manual_defects row ID, since those tables are fully replaced on every
+// upload.
+const DEFECT_ANNOTATIONS = {};
+async function loadDefectAnnotations(){
+  if(!sb) return;
+  const { data, error } = await sb.from('defect_annotations').select('*');
+  if(error){ console.error(error); return; }
+  Object.keys(DEFECT_ANNOTATIONS).forEach(k=>delete DEFECT_ANNOTATIONS[k]);
+  (data||[]).forEach(r=>{ DEFECT_ANNOTATIONS[r.description_key] = r; });
+}
 const authAreaEl = document.getElementById('authArea');
 const signinOverlay = document.getElementById('signinModalOverlay');
 const signinEmail = document.getElementById('signinEmail');
@@ -941,14 +966,106 @@ function renderDefectDetailBody(){
     });
   });
 }
-function openDefectDetail(title, desc, mode, rows){
+function openDefectDetail(title, desc, mode, rows, annotKey){
   document.getElementById('defectDetailTitle').textContent = title;
   document.getElementById('defectDetailDesc').textContent = desc || '';
   defectDetailState = { mode, rows };
   defectDetailSortCol = null;
   defectDetailSortDir = 1;
   renderDefectDetailBody();
+  renderDefectAnnotationPanel(annotKey, title);
   defectDetailOverlay.hidden = false;
+}
+let selectedDefectPhoto = null;
+function renderDefectAnnotationPanel(annotKey, displayDesc){
+  const panel = document.getElementById('defectAnnotationPanel');
+  selectedDefectPhoto = null;
+  if(!annotKey){ panel.innerHTML = ''; panel.hidden = true; return; }
+  panel.hidden = false;
+  const a = DEFECT_ANNOTATIONS[annotKey] || {};
+  const canEdit = canWriteNow();
+  const isClosed = a.status === 'closed';
+  panel.innerHTML = `
+    <div class="defannot">
+      <div class="defannot-photo">
+        <img id="defannotPhotoImg" src="${a.photo_url ? escapeHtml(a.photo_url) : ''}" style="${a.photo_url ? '' : 'display:none'}" alt="Defect illustration">
+        ${!a.photo_url ? `<div class="emptynote" id="defannotNoPhoto">No photo yet</div>` : ''}
+        ${canEdit ? `<label class="filebtn small">Choose photo<input type="file" id="defannotPhotoInput" accept="image/*"></label>` : ''}
+        ${canEdit && a.photo_url ? `<button type="button" class="clearbtn" id="defannotPhotoClear">Remove photo</button>` : ''}
+      </div>
+      <div class="defannot-fields">
+        <div class="defannot-statusrow">
+          <span class="statuspill ${isClosed?'closed':'open'}" id="defannotStatusPill">${isClosed?'Closed':'Open'}</span>
+          ${canEdit ? `<button type="button" class="clearbtn" id="defannotStatusToggle">Mark ${isClosed?'Open':'Closed'}</button>` : ''}
+          ${a.updated_by ? `<span class="emptynote">Last updated by ${escapeHtml(a.updated_by)}${a.updated_at ? ' on '+fmtDate(new Date(a.updated_at)) : ''}</span>` : ''}
+        </div>
+        <label for="defannotRootCause">Root Cause Analysis</label>
+        <textarea id="defannotRootCause" ${canEdit?'':'disabled'} placeholder="${canEdit?'What caused this defect…':'Not recorded yet'}">${escapeHtml(a.root_cause||'')}</textarea>
+        <label for="defannotCorrective">Corrective Action / Preventive Action</label>
+        <textarea id="defannotCorrective" ${canEdit?'':'disabled'} placeholder="${canEdit?'What was done to fix/prevent it…':'Not recorded yet'}">${escapeHtml(a.corrective_action||'')}</textarea>
+        ${canEdit ? `<button type="button" class="markbtn" id="defannotSave" style="align-self:flex-start">Save</button>` : ''}
+      </div>
+    </div>`;
+  if(!canEdit) return;
+
+  let pendingStatus = a.status || 'open';
+  document.getElementById('defannotStatusToggle').addEventListener('click', ()=>{
+    pendingStatus = pendingStatus === 'closed' ? 'open' : 'closed';
+    const pill = document.getElementById('defannotStatusPill');
+    pill.textContent = pendingStatus === 'closed' ? 'Closed' : 'Open';
+    pill.className = `statuspill ${pendingStatus}`;
+    document.getElementById('defannotStatusToggle').textContent = `Mark ${pendingStatus==='closed'?'Open':'Closed'}`;
+  });
+
+  const photoInput = document.getElementById('defannotPhotoInput');
+  if(photoInput) photoInput.addEventListener('change', ()=>{
+    const file = photoInput.files[0];
+    if(!file) return;
+    selectedDefectPhoto = file;
+    const img = document.getElementById('defannotPhotoImg');
+    const reader = new FileReader();
+    reader.onload = ()=>{ img.src = reader.result; img.style.display = ''; };
+    reader.readAsDataURL(file);
+    const noPhoto = document.getElementById('defannotNoPhoto');
+    if(noPhoto) noPhoto.remove();
+  });
+  const photoClear = document.getElementById('defannotPhotoClear');
+  if(photoClear) photoClear.addEventListener('click', ()=>{
+    selectedDefectPhoto = 'remove';
+    document.getElementById('defannotPhotoImg').style.display = 'none';
+    photoClear.remove();
+  });
+
+  document.getElementById('defannotSave').addEventListener('click', async ()=>{
+    const btn = document.getElementById('defannotSave');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    let photoUrl = a.photo_url || null;
+    if(selectedDefectPhoto === 'remove'){
+      photoUrl = null;
+    } else if(selectedDefectPhoto instanceof File){
+      const compressed = await compressImageToLimit(selectedDefectPhoto, 500 * 1024);
+      const path = `${annotKey.replace(/[^A-Z0-9]+/gi,'_').slice(0,80)}/${Date.now()}.jpg`;
+      const { error: upErr } = await sb.storage.from('defect-photos').upload(path, compressed, { contentType: 'image/jpeg' });
+      if(upErr){ alert(`Photo upload failed: ${upErr.message}`); btn.disabled=false; btn.textContent='Save'; return; }
+      photoUrl = sb.storage.from('defect-photos').getPublicUrl(path).data.publicUrl;
+    }
+    const row = {
+      description_key: annotKey,
+      description: displayDesc,
+      photo_url: photoUrl,
+      root_cause: document.getElementById('defannotRootCause').value.trim() || null,
+      corrective_action: document.getElementById('defannotCorrective').value.trim() || null,
+      status: pendingStatus,
+      updated_by: currentSession.user.email,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('defect_annotations').upsert(row, { onConflict: 'description_key' });
+    btn.disabled = false; btn.textContent = 'Save';
+    if(error){ alert(`Couldn't save: ${error.message}`); return; }
+    await loadDefectAnnotations();
+    logActivity('defect_annotation_save', displayDesc.slice(0,120));
+    renderDefectAnnotationPanel(annotKey, displayDesc);
+  });
 }
 document.getElementById('signinSubmit').addEventListener('click', async ()=>{
   if(!sb) return;
@@ -2654,6 +2771,7 @@ const ACTION_LABELS = {
   issue_resolve: 'Issue resolved',
   issue_reopen: 'Issue reopened',
   checklist_count_clear: 'Repeat count cleared',
+  defect_annotation_save: 'Defect root cause/photo updated',
   advance_posted_flag: 'Advance posted',
   advance_posted_unflag: 'Advance posted flag removed',
   advance_posted_status: 'Advance-posted location updated',
@@ -2983,7 +3101,7 @@ function renderAnalysis(){
   }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">No defects recorded.</div></td></tr>`;
   topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
     const t = topDefects[+tr.dataset.i];
-    tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows));
+    tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows, t.desc.trim().toUpperCase()));
   });
 
   // ---- Defects by unit: VIN ascending, with a running S. No. (click straight through to that VIN's card) ----
@@ -3224,7 +3342,7 @@ function rebuildAllUnits(){
 async function initData(){
   if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
   const [prodRows, defRows, , manualRows] = await Promise.all([loadProductionFromSupabase(), loadDefectsFromSupabase(), loadUnitRowsCache(), loadManualDefectsFromSupabase()]);
-  await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements()]);
+  await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements(), loadDefectAnnotations()]);
   if(prodRows){ // null only when not configured or the fetch failed — an empty array is authoritative
     ROWS.length = 0; ROWS.push(...prodRows);
     rebuildAllUnits();
