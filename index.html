@@ -1418,6 +1418,26 @@ const DEFAULT_INCLUDED = new Set(["3010","4000","4010","USTK","SOLD","WAREHOUSE"
 // "Inspection Out", the counterpart to "Inspection In" they're picking
 // from the same list.
 const AP_STATUS_LABELS = { "4010": "Inspection Out" };
+// Maps the free-text Status Text production manually maintains (column T
+// in LX3 Data.xlsx, and the same wording used in the month-end Advance
+// Posted location list) to this app's own stage codes. Shared by the main
+// Production Data Upload parser and the Advance Posted upload parser.
+const LOCATION_ALIASES = {
+  'BODY IN':'1000', 'BODY OUT':'1010',
+  'PAINT IN':'2000', 'PAINT OUT':'2010',
+  'TCF IN':'3000', 'TCF OUT':'3010',
+  'INSPECTION IN':'4000', 'INSPECTION OUT':'4010', 'QC OK':'4010', 'PDI PENDING':'4010',
+  'BU STOCK':'USTK', 'UNRESTRICTED':'USTK', 'STOCK':'USTK',
+  'SOLD':'SOLD',
+};
+function matchStageCode(text){
+  if(text==null) return null;
+  const s = String(text).trim().toUpperCase();
+  if(!s) return null;
+  if(LOCATION_ALIASES[s]) return LOCATION_ALIASES[s];
+  const stage = ALL_STAGES.find(st=>st.label.toUpperCase()===s);
+  return stage ? stage.code : null;
+}
 
 function loadIncluded(){
   try{
@@ -3427,7 +3447,11 @@ wireUpload('uploadProduction', 'uploadProductionStatus', {
       vin: r[7] || null,
       color_code: r[11] || null,
       color_desc: r[13] || null,
-      status_code: r[18] || null,
+      // Status Text (column T, index 19) is what production actually keeps
+      // current by hand — prefer it, mapped to this app's own stage codes,
+      // and only fall back to the coded column (S, index 18) when Status
+      // Text is blank or doesn't match anything recognized.
+      status_code: matchStageCode(r[19]) || r[18] || null,
       body_start: r[21] || null,
       body_fin: r[22] || null,
       paint_start: r[24] || null,
@@ -3663,24 +3687,6 @@ document.getElementById('clearProductionBtn').addEventListener('click', async ()
   // dashboard has no data for and shouldn't flag.
   const fullVinRe = /^PMHRM81ASTN\d{6}$/;
   const suffixRe = /^\d{6}$/;
-  // Maps the free-text "Current Location" values this export actually uses
-  // (and reasonable variants) to this app's own stage codes.
-  const LOCATION_ALIASES = {
-    'BODY IN':'1000', 'BODY OUT':'1010',
-    'PAINT IN':'2000', 'PAINT OUT':'2010',
-    'TCF IN':'3000', 'TCF OUT':'3010',
-    'INSPECTION IN':'4000', 'INSPECTION OUT':'4010', 'QC OK':'4010', 'PDI PENDING':'4010',
-    'BU STOCK':'USTK', 'UNRESTRICTED':'USTK', 'STOCK':'USTK',
-    'SOLD':'SOLD',
-  };
-  function matchStageCode(text){
-    if(text==null) return null;
-    const s = String(text).trim().toUpperCase();
-    if(!s) return null;
-    if(LOCATION_ALIASES[s]) return LOCATION_ALIASES[s];
-    const stage = ALL_STAGES.find(st=>st.label.toUpperCase()===s);
-    return stage ? stage.code : null;
-  }
   // Accepts any syntactically valid LX3 VIN regardless of whether it's in
   // the CURRENT production upload yet — this list can run ahead of the
   // last roster upload, and the flag should still take once that catches
