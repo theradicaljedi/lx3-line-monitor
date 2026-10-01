@@ -1009,7 +1009,7 @@ function defectTrendShellHtml(rows){
 function renderDefectTrendChart(){
   const svg = document.getElementById('defTrendSvg');
   if(!svg) return;
-  const start = defectTrendWeekOffset*7 + 1, end = Math.min(start+6, 31);
+  const start = defectTrendWeekOffset*14 + 1, end = Math.min(start+13, 31);
   document.getElementById('defTrendWeekLabel').textContent = `Day ${start}–${end}`;
   document.getElementById('defTrendPrevWeek').disabled = defectTrendWeekOffset === 0;
   document.getElementById('defTrendNextWeek').disabled = end >= 31;
@@ -1041,7 +1041,7 @@ function renderDefectTrendChart(){
 }
 document.getElementById('defectAnnotationPanel').addEventListener('click', e=>{
   if(e.target.id==='defTrendPrevWeek' && defectTrendWeekOffset>0){ defectTrendWeekOffset--; renderDefectTrendChart(); }
-  if(e.target.id==='defTrendNextWeek' && defectTrendWeekOffset*7+8<=31){ defectTrendWeekOffset++; renderDefectTrendChart(); }
+  if(e.target.id==='defTrendNextWeek' && defectTrendWeekOffset*14+15<=31){ defectTrendWeekOffset++; renderDefectTrendChart(); }
 });
 function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
   const panel = document.getElementById('defectAnnotationPanel');
