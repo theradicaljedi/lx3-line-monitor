@@ -61,9 +61,6 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .hdr h1{font-family:'Oswald',sans-serif;font-weight:700;font-size:26px;letter-spacing:.2px;margin:0 0 2px}
 .hdr .sub{color:var(--muted);font-size:13px}
 .hdr .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:6px}
-.connbadge{font-family:'IBM Plex Mono',monospace;font-size:11.5px;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 11px;color:var(--muted);box-shadow:var(--shadow);display:flex;align-items:center;gap:6px}
-.connbadge .dot{width:7px;height:7px;border-radius:50%;background:var(--bad)}
-.connbadge.ok .dot{background:var(--good)}
 .authbtn{background:var(--accent);color:#fff;border:none;border-radius:20px;padding:5px 12px;font-size:11.5px;font-weight:600;cursor:pointer}
 .authuser{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:8px}
 .authuser button{background:none;border:1px solid var(--line);border-radius:20px;padding:4px 10px;font-size:11px;color:var(--muted);cursor:pointer}
@@ -350,7 +347,6 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
 .issuephotopreviewwrap .clearbtn{position:absolute;top:-8px;right:-8px;background:var(--surface);border:1px solid var(--line);border-radius:50%;width:22px;height:22px;box-shadow:var(--shadow);font-size:14px}
 .issue .issuephoto{display:block;max-width:220px;max-height:160px;border-radius:8px;margin-top:8px;object-fit:cover;cursor:pointer}
 .emptynote{font-size:12px;color:var(--muted);font-style:italic}
-.foot{color:var(--muted);font-size:11.5px;margin-top:22px;text-align:center}
 @media(max-width:640px){
   .citem:not(.tile){flex:1 1 100%}
   /* Tables that don't need a fixed/sticky layout (unlike Units or the
@@ -772,13 +768,7 @@ const sb = (SUPABASE_URL.startsWith("http") && SUPABASE_ANON_KEY.length > 20)
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-// The connection badge tile was removed from the UI, but setConnStatus is
-// still called from a few places below to log the state — harmless no-op
-// now that its DOM elements don't exist.
-function setConnStatus(ok, label){
-  if(!sb && !ok) console.warn(label);
-}
-setConnStatus(!!sb, sb ? 'Live (Supabase) — read-only' : 'Supabase not configured — edit index.html');
+if(!sb) console.warn('Supabase not configured — edit index.html');
 
 // ---------- Auth: the whole dashboard needs a signed-in account ----------
 // (Supabase dashboard > Authentication > Users > Add user — this page has no
@@ -876,7 +866,6 @@ function renderAuthArea(){
     authAreaEl.innerHTML = `<div class="authuser"><span class="rolebadge">${roleLabel}</span> ${currentSession.user.email} <button type="button" id="changePasswordBtn">Change password</button> <button type="button" id="signOutBtn">Sign out</button></div>`;
     document.getElementById('signOutBtn').addEventListener('click', async ()=>{ await sb.auth.signOut(); });
     document.getElementById('changePasswordBtn').addEventListener('click', openNewPasswordModal);
-    setConnStatus(true, 'Live (Supabase) — signed in');
     if(scopeBtnEl) scopeBtnEl.hidden = false;
     if(dailyReportBtnEl) dailyReportBtnEl.hidden = currentRole !== 'admin';
     if(uploadBtnEl) uploadBtnEl.hidden = !(canWriteNow() || canManageAdvancePosted());
@@ -901,7 +890,6 @@ function renderAuthArea(){
   } else {
     authAreaEl.innerHTML = `<button type="button" class="authbtn" id="signInBtn">Sign in</button>`;
     document.getElementById('signInBtn').addEventListener('click', openSignin);
-    setConnStatus(true, 'Live (Supabase) — signed out');
     if(scopeBtnEl) scopeBtnEl.hidden = true;
     if(dailyReportBtnEl) dailyReportBtnEl.hidden = true;
     if(uploadBtnEl) uploadBtnEl.hidden = true;
@@ -951,7 +939,7 @@ let defectDetailSortCol = null;
 let defectDetailSortDir = 1;
 const DEFECT_DETAIL_COLS = {
   defects: [
-    {key:'vin', label:'VIN', get:d=>(ALL_UNITS.find(x=>x.vinSuffix===d[0])||{}).vin || d[0] || ''},
+    {key:'vin', label:'VIN', get:d=>(UNIT_BY_SUFFIX.get(d[0])||{}).vin || d[0] || ''},
     {key:'station', label:'Station', get:d=>d[1]||''},
     {key:'defect', label:'Defect', get:d=>d[2]||''},
     {key:'date', label:'Date', get:d=>d[3]||0},
@@ -982,7 +970,7 @@ function renderDefectDetailBody(){
   }
   if(mode === 'defects'){
     body.innerHTML = sortedRows.length ? sortedRows.map(d=>{
-      const u = ALL_UNITS.find(x=>x.vinSuffix===d[0]);
+      const u = UNIT_BY_SUFFIX.get(d[0]);
       return `<tr class="detail-row" data-vin="${escapeHtml(u?u.vin:'')}" data-sr="${u?u.sr:''}">
         <td><span class="vin">${escapeHtml(u?u.vin:d[0])}</span></td>
         <td>${escapeHtml(d[1])}</td>
@@ -1036,15 +1024,12 @@ function openDefectDetail(title, desc, mode, rows, annotKey){
   renderDefectAnnotationPanel(annotKey, title, rows);
   defectDetailOverlay.hidden = false;
 }
-// Occurrence trend for one defect type — day-of-month on the x-axis (like
-// the reference "Water Leakage Defect Tracking Record" charts), line +
-// value label per point. Paginated a week (7 days) at a time rather than
-// cramming all 31 days into one view — a fixed count-scale across weeks
-// (computed from the whole month, not just the visible week) keeps the
-// y-axis stable while paging, so bars/line heights stay comparable.
+// Occurrence trend for one defect type — day-of-month (1-31) on the x-axis
+// (like the reference "Water Leakage Defect Tracking Record" charts), line +
+// value label per point, red N = units inspected at this station that day.
 // Dates spanning more than one month collapse onto the same day-of-month
-// position, same simplification the original per-month chart made by
-// construction (it only ever covered a single month at a time).
+// position — acceptable since in practice one defect-type's rows span at
+// most a few weeks.
 let defectTrendCounts = {};
 let defectTrendThroughput = {}; // day -> distinct units that passed this station that day
 let defectTrendMonthLabel = '';
@@ -1052,25 +1037,33 @@ function defectTrendShellHtml(rows){
   defectTrendCounts = {};
   defectTrendThroughput = {};
   const months = new Set();
+  // Station can vary by day for the same defect wording (a unit's inspection
+  // station can differ day to day), so throughput is tracked per the day's
+  // actual station(s), not a single station assumed from rows[0].
+  const stationsByDay = {};
+  const stationsSeen = new Set();
   (rows||[]).forEach(d=>{
     if(!d[3]) return;
     const dt = xl(d[3]);
     const day = dt.getDate();
     defectTrendCounts[day] = (defectTrendCounts[day]||0) + 1;
     months.add(dt.toLocaleString('en-US',{month:'long',year:'numeric'}));
+    (stationsByDay[day] || (stationsByDay[day] = new Set())).add(d[1]);
+    stationsSeen.add(d[1]);
   });
   if(!Object.keys(defectTrendCounts).length) return '';
   defectTrendMonthLabel = Array.from(months).join(' / ');
-  const station = rows[0][1];
   const vinsByDay = {};
   ALL_INSPECTION_ROWS.forEach(r=>{
-    if(r.station !== station || !r.serial) return;
+    if(!r.serial) return;
     const day = xl(r.serial).getDate();
+    if(!stationsByDay[day] || !stationsByDay[day].has(r.station)) return;
     (vinsByDay[day] || (vinsByDay[day] = new Set())).add(r.vin);
   });
   Object.keys(vinsByDay).forEach(day=>{ defectTrendThroughput[day] = vinsByDay[day].size; });
+  const stationLabel = stationsSeen.size > 1 ? 'its station' : [...stationsSeen][0];
   return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
-    <div class="emptynote" style="margin-bottom:6px"><span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(station)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed</div>
+    <div class="emptynote" style="margin-bottom:6px"><span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(stationLabel)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed</div>
     <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
 }
 function renderParetoChart(svgId, items, onBarClick){
@@ -1945,6 +1938,16 @@ const ALL_UNITS = ROWS.map(r=>{
     biInsp:xl(bi), aiInsp:xl(ai), afInsp:xl(af), ustk:xl(us), wipDays};
 });
 applyAdvancePosted(ALL_UNITS);
+
+// Kept in sync with ALL_UNITS everywhere it's rebuilt — avoids an O(n) scan
+// per lookup in hot paths (table sorting, per-row rendering) that used to
+// call ALL_UNITS.find(...) once per row/comparison.
+const UNIT_BY_SUFFIX = new Map();
+function rebuildUnitBySuffix(){
+  UNIT_BY_SUFFIX.clear();
+  ALL_UNITS.forEach(u=>{ if(u.vinSuffix) UNIT_BY_SUFFIX.set(u.vinSuffix, u); });
+}
+rebuildUnitBySuffix();
 
 function currentUnits(){
   return ALL_UNITS.filter(u=>included.has(effectiveStatusCode(u)));
@@ -3218,7 +3221,7 @@ function renderAnalysis(){
   const byVin = {};
   DEFECTS.forEach(d=>{ byVin[d[0]] = (byVin[d[0]]||0) + 1; });
   const vinRows = [...INSPECTED_VINS].map(vinSuffix=>{
-    const u = ALL_UNITS.find(x=>x.vinSuffix===vinSuffix);
+    const u = UNIT_BY_SUFFIX.get(vinSuffix);
     return {u, vinSuffix, count: byVin[vinSuffix]||0};
   }).sort((a,b)=>b.count-a.count);
 
@@ -3401,10 +3404,10 @@ function renderAnalysis(){
   }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">No defects recorded.</div></td></tr>`;
   topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
     const t = topDefects[+tr.dataset.i];
-    tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} units at ${t.station}`, 'defects', t.rows, t.desc.trim().toUpperCase()));
+    tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} occurrence${t.count===1?'':'s'} at ${t.station}`, 'defects', t.rows, t.desc.trim().toUpperCase()));
   });
   renderParetoChart('paretoDescSvg', topDefects.map(t=>({label:t.desc, count:t.count, rows:t.rows, station:t.station})),
-    t=>openDefectDetail(t.label, `${t.count} units at ${t.station}`, 'defects', t.rows, t.label.trim().toUpperCase()));
+    t=>openDefectDetail(t.label, `${t.count} occurrence${t.count===1?'':'s'} at ${t.station}`, 'defects', t.rows, t.label.trim().toUpperCase()));
 
   // ---- Defects by unit: VIN ascending, with a running S. No. (click straight through to that VIN's card) ----
   const vinRowsAscending = [...vinRows].sort((a,b)=>
@@ -3668,6 +3671,7 @@ function rebuildAllUnits(){
   ALL_UNITS.length = 0;
   ALL_UNITS.push(...mapped);
   applyAdvancePosted(ALL_UNITS);
+  rebuildUnitBySuffix();
 }
 async function initData(){
   if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
@@ -4147,7 +4151,7 @@ document.getElementById('clearProductionBtn').addEventListener('click', async ()
     const s = String(cell).trim().toUpperCase();
     if(fullVinRe.test(s)) return s;
     if(suffixRe.test(s)){
-      const u = ALL_UNITS.find(x=>x.vinSuffix===s);
+      const u = UNIT_BY_SUFFIX.get(s);
       return u ? u.vin : `PMHRM81ASTN${s}`; // best-effort reconstruction if not in the roster yet
     }
     return null;
