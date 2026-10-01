@@ -212,13 +212,16 @@ th.sortable:hover{color:var(--ink)}
 .apmovetable tr:first-child td{border-top:none}
 .apaddrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:10px}
 
-.defannot{background:var(--surface-2);border-radius:10px;padding:14px;margin-bottom:14px;display:flex;gap:16px;flex-wrap:wrap}
-.defannot-fields{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:8px}
-.defannot-fields label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
-.defannot-fields textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:8px;font-family:inherit;font-size:12.5px;resize:vertical;min-height:50px;background:var(--surface);color:var(--ink)}
-.defannot-photo{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px}
-.defannot-photo img{display:block;max-width:160px;max-height:160px;border-radius:8px;object-fit:cover;background:var(--surface)}
-.defannot-statusrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.defannot{background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:16px;margin-bottom:14px;display:flex;gap:20px;flex-wrap:wrap}
+.defannot-fields{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.defannot-fields label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-top:4px}
+.defannot-fields textarea{width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font-family:inherit;font-size:12.5px;resize:vertical;min-height:60px;background:var(--surface);color:var(--ink)}
+.defannot-photo{flex:0 0 160px;display:flex;flex-direction:column;align-items:center;gap:8px;padding-right:20px;border-right:1px solid var(--line)}
+.defannot-photo img{display:block;width:160px;max-height:160px;border-radius:8px;object-fit:cover;background:var(--surface)}
+.defannot-statusrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid var(--line);margin-bottom:2px}
+@media(max-width:520px){
+  .defannot-photo{flex:1 1 100%;border-right:none;border-bottom:1px solid var(--line);padding-right:0;padding-bottom:14px}
+}
 .statuspill{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:3px 10px;border-radius:20px}
 .statuspill.open{background:var(--bad-soft);color:var(--bad)}
 .statuspill.closed{background:var(--good-soft);color:var(--good)}
