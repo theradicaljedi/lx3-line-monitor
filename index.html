@@ -1838,31 +1838,47 @@ const TODAY = new Date(); // real "today" in a live deployment, unlike the fixed
 // quality/dimensions down until it fits the target, so Issue photos don't
 // eat Supabase storage. Falls back to the original file if the browser
 // can't decode it (createImageBitmap unsupported/rejected).
+async function loadDrawableImage(file){
+  try{ return await createImageBitmap(file); }
+  catch(e){
+    // Safari/older browsers, or a format createImageBitmap rejects (some
+    // HEIC variants) — fall back to a plain <img>, which decodes far more
+    // formats, instead of silently skipping compression altogether.
+    const url = URL.createObjectURL(file);
+    try{
+      const img = new Image();
+      await new Promise((resolve, reject)=>{ img.onload = resolve; img.onerror = reject; img.src = url; });
+      return img;
+    } finally { URL.revokeObjectURL(url); }
+  }
+}
 async function compressImageToLimit(file, maxBytes){
-  let bitmap;
-  try{ bitmap = await createImageBitmap(file); }
-  catch(e){ return file; }
-  let width = bitmap.width, height = bitmap.height;
+  let source;
+  try{ source = await loadDrawableImage(file); }
+  catch(e){ return file; } // genuinely undecodable — upload the original rather than nothing
+  let width = source.width || source.naturalWidth, height = source.height || source.naturalHeight;
+  if(!width || !height) return file;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   async function renderAt(w, h, quality){
     canvas.width = w; canvas.height = h;
-    ctx.drawImage(bitmap, 0, 0, w, h);
+    ctx.drawImage(source, 0, 0, w, h);
     return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
   }
   let quality = 0.85;
   let blob = await renderAt(width, height, quality);
-  while(blob && blob.size > maxBytes && quality > 0.35){
-    quality -= 0.15;
+  while(blob && blob.size > maxBytes && quality > 0.3){
+    quality -= 0.1;
     blob = await renderAt(width, height, quality);
   }
-  while(blob && blob.size > maxBytes && width > 480 && height > 480){
-    width = Math.round(width * 0.8);
-    height = Math.round(height * 0.8);
+  while(blob && blob.size > maxBytes && width > 320 && height > 320){
+    width = Math.round(width * 0.75);
+    height = Math.round(height * 0.75);
+    quality = 0.7;
     blob = await renderAt(width, height, quality);
   }
-  bitmap.close && bitmap.close();
-  return blob || file;
+  source.close && source.close();
+  return (blob && blob.size <= maxBytes) ? blob : (blob || file);
 }
 
 // Days spent in the unit's CURRENT stage — not days since some fixed ERP
