@@ -724,6 +724,10 @@ function canWriteNow(){ return !!sb && !!currentSession && (currentRole==="admin
 // everything else (production/defect uploads, checklist taps, issues).
 function canManageAdvancePosted(){ return !!sb && !!currentSession && (currentRole==="admin" || currentRole==="production_planning"); }
 const ROLE_LABELS = { admin:"Admin", editor:"Editor", viewer:"Viewer", production_planning:"Production Planning" };
+// Advance Posted flagged_by/set_by records the account's ROLE, not its
+// email — "Admin" / "Production Planning", not a person's address — since
+// that's who's accountable for this workflow, not which specific login.
+function currentRoleLabel(){ return ROLE_LABELS[currentRole] || currentRole || 'Unknown'; }
 async function loadCurrentRole(){
   if(!sb || !currentSession){ currentRole = null; return; }
   const { data, error } = await sb.from('user_roles').select('role').eq('user_id', currentSession.user.id).maybeSingle();
@@ -1360,8 +1364,8 @@ function reachedInspection(u){ return ["4000","4010","USTK","SOLD"].includes(eff
 // viewer choose which of these count as "in monitoring" (funnel/roster/VQ panels);
 // the top KPI tiles always show every stage's true count regardless of this choice.
 const ALL_STAGES = [
+  {code:"WAREHOUSE", label:"Warehouse", color:"var(--plan)"},
   {code:"PLAN", label:"Planning", color:"var(--plan)"},
-  {code:"UNPACKED", label:"Unpacked", color:"var(--plan)"},
   {code:"1000", label:"Body in", color:"var(--plan)"},
   {code:"1010", label:"Body out", color:"var(--plan)"},
   {code:"2000", label:"Paint in", color:"var(--paint)"},
@@ -1373,7 +1377,7 @@ const ALL_STAGES = [
   {code:"USTK", label:"BU Stock", color:"var(--good)"},
   {code:"SOLD", label:"Sold", color:"var(--accent)"},
 ];
-const DEFAULT_INCLUDED = new Set(["3010","4000","4010","USTK","SOLD","UNPACKED"]);
+const DEFAULT_INCLUDED = new Set(["3010","4000","4010","USTK","SOLD","WAREHOUSE"]);
 // Clearer wording for the Advance Posted secondary-status dropdown than the
 // global "QC OK / PDI pending" label — production team thinks of it as
 // "Inspection Out", the counterpart to "Inspection In" they're picking
@@ -1521,7 +1525,7 @@ function currentUnits(){
 // until production records its real location.
 const stageCount = code => ALL_UNITS.filter(u=>effectiveStatusCode(u)===code).length;
 const kpisEl = document.getElementById('kpis');
-const KPI_CLS = {PLAN:"plan", UNPACKED:"plan", "1000":"plan", "1010":"plan", "2000":"plan", "2010":"plan", "3000":"plan", "3010":"accent", "4000":"warn", "4010":"warn", USTK:"good", SOLD:"accent"};
+const KPI_CLS = {PLAN:"plan", WAREHOUSE:"plan", "1000":"plan", "1010":"plan", "2000":"plan", "2010":"plan", "3000":"plan", "3010":"accent", "4000":"warn", "4010":"warn", USTK:"good", SOLD:"accent"};
 // null = no tile filter (roster shows everything in scope); "WIP" = the WIP tile; or a stage code.
 let tileFilter = null;
 function setTileFilter(code){
@@ -2402,7 +2406,7 @@ function openDrawer(vin, sr){
       const dateVal = document.getElementById('apMoveDate').value || todayStr();
       apMoveAddBtn.disabled = true;
       const { error } = await sb.from('advance_posted_movements').insert({
-        vin: u.vin, status_code: code, moved_at: dateVal, set_by: currentSession.user.email,
+        vin: u.vin, status_code: code, moved_at: dateVal, set_by: currentRoleLabel(),
       });
       apMoveAddBtn.disabled = false;
       if(error){ alert(`Couldn't log this movement: ${error.message}`); return; }
@@ -2532,9 +2536,9 @@ document.getElementById('apClearSelection').addEventListener('click', ()=>{
 });
 async function setAdvancePosted(vins, flagged){
   if(!sb || !vins.length) return;
-  const email = currentSession && currentSession.user.email;
+  const roleLabel = currentRoleLabel();
   if(flagged){
-    const rows = vins.map(vin=>({ vin, flagged_by: email, flagged_at: new Date().toISOString() }));
+    const rows = vins.map(vin=>({ vin, flagged_by: roleLabel, flagged_at: new Date().toISOString() }));
     const { error } = await sb.from('advance_posted_units').upsert(rows, { onConflict: 'vin', ignoreDuplicates: true });
     if(error){ alert(`Couldn't flag these units: ${error.message}`); return; }
     logActivity('advance_posted_flag', `${vins.length} unit(s) marked advance posted`);
@@ -3641,15 +3645,15 @@ wireClearButton('clearManualDefectsBtn', 'uploadManualDefectsStatus', 'manual de
       return;
     }
     statusEl.textContent = `Flagging ${matches.length} unit(s)…`;
-    const email = currentSession.user.email;
+    const roleLabel = currentRoleLabel();
     const now = new Date().toISOString();
     const today = todayStr();
-    const flagRows = matches.map(m=>({ vin: m.vin, flagged_by: email, flagged_at: now }));
+    const flagRows = matches.map(m=>({ vin: m.vin, flagged_by: roleLabel, flagged_at: now }));
     const { error: flagErr } = await sb.from('advance_posted_units').upsert(flagRows, { onConflict: 'vin', ignoreDuplicates: true });
     if(flagErr){ statusEl.textContent = 'Upload failed: ' + flagErr.message; return; }
     const withLoc = matches.filter(m=>m.code);
     if(withLoc.length){
-      const moveRows = withLoc.map(m=>({ vin: m.vin, status_code: m.code, moved_at: today, set_by: email }));
+      const moveRows = withLoc.map(m=>({ vin: m.vin, status_code: m.code, moved_at: today, set_by: roleLabel }));
       const { error: moveErr } = await sb.from('advance_posted_movements').insert(moveRows);
       if(moveErr){ statusEl.textContent = 'Flagged, but logging locations failed: ' + moveErr.message; return; }
     }
