@@ -1053,39 +1053,78 @@ function openDefectDetail(title, desc, mode, rows, annotKey){
 let defectTrendCounts = {};
 let defectTrendThroughput = {}; // day -> distinct units that passed this station that day
 let defectTrendMonthLabel = '';
-function defectTrendShellHtml(rows){
+let defectTrendRows = [];
+let defectTrendMonthKeys = [];   // sorted 'YYYY-MM' keys present in this defect's rows
+let defectTrendMonthIdx = 0;
+let defectTrendStationLabel = '';
+const monthKeyOf = dt => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+// Only ONE calendar month is charted at a time — mixing September and October
+// on a shared day-of-month axis put unrelated days on top of each other.
+function computeDefectTrendForMonth(){
   defectTrendCounts = {};
   defectTrendThroughput = {};
-  const months = new Set();
-  // Station can vary by day for the same defect wording (a unit's inspection
-  // station can differ day to day), so throughput is tracked per the day's
-  // actual station(s), not a single station assumed from rows[0].
+  const key = defectTrendMonthKeys[defectTrendMonthIdx];
   const stationsByDay = {};
   const stationsSeen = new Set();
-  (rows||[]).forEach(d=>{
+  let sample = null;
+  defectTrendRows.forEach(d=>{
     if(!d[3]) return;
     const dt = xl(d[3]);
+    if(monthKeyOf(dt) !== key) return;
+    sample = dt;
     const day = dt.getDate();
     defectTrendCounts[day] = (defectTrendCounts[day]||0) + 1;
-    months.add(dt.toLocaleString('en-US',{month:'long',year:'numeric'}));
     (stationsByDay[day] || (stationsByDay[day] = new Set())).add(d[1]);
     stationsSeen.add(d[1]);
   });
-  if(!Object.keys(defectTrendCounts).length) return '';
-  defectTrendMonthLabel = Array.from(months).join(' / ');
+  defectTrendMonthLabel = sample ? sample.toLocaleString('en-US',{month:'long',year:'numeric'}) : '';
   const vinsByDay = {};
   ALL_INSPECTION_ROWS.forEach(r=>{
     if(!r.serial) return;
-    const day = xl(r.serial).getDate();
+    const dt = xl(r.serial);
+    if(monthKeyOf(dt) !== key) return;
+    const day = dt.getDate();
     if(!stationsByDay[day] || !stationsByDay[day].has(r.station)) return;
     (vinsByDay[day] || (vinsByDay[day] = new Set())).add(r.vin);
   });
   Object.keys(vinsByDay).forEach(day=>{ defectTrendThroughput[day] = vinsByDay[day].size; });
-  const stationLabel = stationsSeen.size > 1 ? 'its station' : [...stationsSeen][0];
-  return `<div class="section-title" style="margin-top:0">Occurrences by day — ${escapeHtml(defectTrendMonthLabel)}</div>
-    <div class="emptynote" style="margin-bottom:6px"><span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(stationLabel)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed</div>
+  defectTrendStationLabel = stationsSeen.size > 1 ? 'its station' : ([...stationsSeen][0] || '');
+}
+function defectTrendShellHtml(rows){
+  defectTrendRows = rows || [];
+  const keys = new Set();
+  defectTrendRows.forEach(d=>{ if(d[3]) keys.add(monthKeyOf(xl(d[3]))); });
+  defectTrendMonthKeys = [...keys].sort();
+  if(!defectTrendMonthKeys.length){ defectTrendCounts = {}; return ''; }
+  defectTrendMonthIdx = defectTrendMonthKeys.length - 1; // start on the latest month
+  computeDefectTrendForMonth();
+  return `<div class="section-title withbtn" style="margin-top:0"><span id="defTrendTitle"></span>
+      <span id="defTrendMonthNav" style="display:flex;align-items:center;gap:8px">
+        <button type="button" class="collapsebtn" id="defTrendPrevMonth" title="Previous month">&#8249;</button>
+        <button type="button" class="collapsebtn" id="defTrendNextMonth" title="Next month">&#8250;</button>
+      </span></div>
+    <div class="emptynote" id="defTrendKey" style="margin-bottom:6px"></div>
     <div style="overflow-x:auto"><svg id="defTrendSvg" viewBox="0 0 820 170" style="width:100%;min-width:480px;height:auto"></svg></div>`;
 }
+function updateDefectTrendHeader(){
+  const title = document.getElementById('defTrendTitle');
+  if(!title) return;
+  title.textContent = `Occurrences by day — ${defectTrendMonthLabel}`;
+  document.getElementById('defTrendKey').innerHTML = `<span style="color:#c0392b;font-weight:600">Red</span> = units inspected at ${escapeHtml(defectTrendStationLabel)} that day &nbsp; <span style="color:var(--ink);font-weight:600">Black</span> = units with this defect observed`;
+  const multi = defectTrendMonthKeys.length > 1;
+  document.getElementById('defTrendMonthNav').hidden = !multi;
+  document.getElementById('defTrendPrevMonth').disabled = defectTrendMonthIdx === 0;
+  document.getElementById('defTrendNextMonth').disabled = defectTrendMonthIdx === defectTrendMonthKeys.length - 1;
+}
+document.getElementById('defectAnnotationPanel').addEventListener('click', e=>{
+  const id = e.target.id;
+  if(id !== 'defTrendPrevMonth' && id !== 'defTrendNextMonth') return;
+  const next = defectTrendMonthIdx + (id === 'defTrendPrevMonth' ? -1 : 1);
+  if(next < 0 || next >= defectTrendMonthKeys.length) return;
+  defectTrendMonthIdx = next;
+  computeDefectTrendForMonth();
+  renderDefectTrendChart();
+});
 function wrapParetoLabel(text, maxChars, maxLines){
   const words = text.split(/\s+/);
   const lines = [];
@@ -1161,15 +1200,18 @@ function renderParetoChart(svgId, items, onBarClick){
 function renderDefectTrendChart(){
   const svg = document.getElementById('defTrendSvg');
   if(!svg) return;
-  const start = 1, end = 31;
+  updateDefectTrendHeader();
+  const [yr, mo] = defectTrendMonthKeys[defectTrendMonthIdx].split('-').map(Number);
+  const start = 1, end = new Date(yr, mo, 0).getDate(); // real length of the selected month
   const W = 820, H = 170, padL = 36, padR = 18, padT = 22, padB = 24;
-  const maxCount = Math.max(1, ...Object.values(defectTrendCounts));
+  const dataMax = Math.max(1, ...Object.values(defectTrendCounts));
+  const step = Math.ceil(dataMax / 5);          // whole-number, evenly spaced ticks
+  const maxCount = Math.ceil(dataMax / step) * step;
   const x = day => padL + ((day-start)/(end-start||1)) * (W-padL-padR);
   const y = v => H-padB - (v/maxCount) * (H-padT-padB);
   const parts = [];
-  const ticks = Math.min(maxCount, 5);
-  for(let t=0;t<=ticks;t++){
-    const v = Math.round(maxCount*t/ticks), yy = y(v);
+  for(let v=0; v<=maxCount; v+=step){
+    const yy = y(v);
     parts.push(`<line x1="${padL}" y1="${yy.toFixed(1)}" x2="${W-padR}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`);
     parts.push(`<text x="${padL-6}" y="${(yy+3).toFixed(1)}" font-size="12" text-anchor="end" fill="var(--muted)">${v}</text>`);
   }
