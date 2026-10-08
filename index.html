@@ -542,7 +542,14 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
       <div id="apReconError" class="emptynote"></div>
       <div class="tablewrap detail-tablewrap">
         <table>
-          <thead><tr><th>VIN</th><th>SAP status</th><th>Real location (latest log)</th><th>Logged on</th><th>Flagged by</th><th>Flagged on</th></tr></thead>
+          <thead id="apReconHead"><tr>
+            <th class="sortable" data-col="vin">VIN <span class="sortic" data-col="vin"></span></th>
+            <th class="sortable" data-col="sap">SAP status <span class="sortic" data-col="sap"></span></th>
+            <th class="sortable" data-col="real">Real location (latest log) <span class="sortic" data-col="real"></span></th>
+            <th class="sortable" data-col="logged">Logged on <span class="sortic" data-col="logged"></span></th>
+            <th class="sortable" data-col="flaggedBy">Flagged by <span class="sortic" data-col="flaggedBy"></span></th>
+            <th class="sortable" data-col="flaggedAt">Flagged on <span class="sortic" data-col="flaggedAt"></span></th>
+          </tr></thead>
           <tbody id="apReconBody"></tbody>
         </table>
       </div>
@@ -705,7 +712,13 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
       <h2>Defects by unit</h2>
       <div class="tablewrap compact">
         <table>
-          <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Defect count</th></tr></thead>
+          <thead id="defectsByVinHead"><tr>
+            <th class="sortable" data-col="sr">S. No <span class="sortic" data-col="sr"></span></th>
+            <th class="sortable" data-col="vin">VIN <span class="sortic" data-col="vin"></span></th>
+            <th class="sortable" data-col="color">Color <span class="sortic" data-col="color"></span></th>
+            <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
+            <th class="sortable" data-col="count">Defect count <span class="sortic" data-col="count"></span></th>
+          </tr></thead>
           <tbody id="defectsByVinBody"></tbody>
         </table>
       </div>
@@ -716,7 +729,14 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
       <div class="desc">Units with defects logged at 2 or more different inspection stations &mdash; a pattern across stations can point to a bad batch or supplier lot rather than a single process issue.</div>
       <div class="tablewrap compact">
         <table>
-          <thead><tr><th>S. No</th><th>VIN</th><th>Color</th><th>Stage</th><th>Stations affected</th><th>Total defects</th></tr></thead>
+          <thead id="repeatOffendersHead"><tr>
+            <th class="sortable" data-col="sr">S. No <span class="sortic" data-col="sr"></span></th>
+            <th class="sortable" data-col="vin">VIN <span class="sortic" data-col="vin"></span></th>
+            <th class="sortable" data-col="color">Color <span class="sortic" data-col="color"></span></th>
+            <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
+            <th class="sortable" data-col="stations">Stations affected <span class="sortic" data-col="stations"></span></th>
+            <th class="sortable" data-col="count">Total defects <span class="sortic" data-col="count"></span></th>
+          </tr></thead>
           <tbody id="repeatOffendersBody"></tbody>
         </table>
       </div>
@@ -1853,6 +1873,45 @@ function escapeHtml(s){
     .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 const TODAY = new Date(); // real "today" in a live deployment, unlike the fixed snapshot date used while this was a static artifact
+
+// Generic click-to-sort wiring for a <thead> with .sortable th[data-col] cells
+// and a matching .sortic span per column — used by every analysis/report
+// table that isn't already hand-rolled (Units roster and Activity Log have
+// their own older copy of this same pattern).
+function makeSortState(){ return {col:null, dir:1}; }
+function sortRowsBy(rows, state, getters){
+  if(!state.col || !getters[state.col]) return rows;
+  const get = getters[state.col];
+  return [...rows].sort((a,b)=>{
+    const va = get(a), vb = get(b);
+    if(va == null && vb == null) return 0;
+    if(va == null) return 1;
+    if(vb == null) return -1;
+    if(typeof va === 'number' && typeof vb === 'number') return (va-vb) * state.dir;
+    return String(va).localeCompare(String(vb)) * state.dir;
+  });
+}
+function wireSortableHead(theadEl, state, onChange){
+  theadEl.querySelectorAll('.sortable').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const col = th.dataset.col;
+      if(state.col === col) state.dir *= -1; else { state.col = col; state.dir = 1; }
+      updateSortIconsIn(theadEl, state);
+      onChange();
+    });
+  });
+  updateSortIconsIn(theadEl, state);
+}
+function updateSortIconsIn(theadEl, state){
+  theadEl.querySelectorAll('.sortic').forEach(el=>{
+    el.textContent = el.dataset.col === state.col ? (state.dir===1?'▲':'▼') : '';
+    el.classList.toggle('active', el.dataset.col === state.col);
+  });
+}
+const topDefectsSort = makeSortState();
+const defectsByVinSort = makeSortState();
+const repeatOffendersSort = makeSortState();
+const apReconSort = makeSortState();
 
 // Phone camera photos routinely run 3-8MB — re-encode as JPEG and step
 // quality/dimensions down until it fits the target, so Issue photos don't
@@ -3030,8 +3089,13 @@ document.getElementById('apUnmarkBtn').addEventListener('click', ()=>{
 
 // ---------- Advance Posted vs. physical reconciliation report ----------
 function stageLabelFor(code){ return code ? (AP_STATUS_LABELS[code] || (ALL_STAGES.find(s=>s.code===code)||{}).label || code) : null; }
+let apReconData = [];
+const apReconGetters = {
+  vin: r=>r.vin, sap: r=>r.sapLabel, real: r=>r.realLabel||'',
+  logged: r=>r.loggedOn||'', flaggedBy: r=>r.flaggedBy||'', flaggedAt: r=>r.flaggedAt||'',
+};
 function renderApReconReport(){
-  const rows = ALL_UNITS.filter(u=>u.advancePosted).map(u=>{
+  apReconData = ALL_UNITS.filter(u=>u.advancePosted).map(u=>{
     const latest = (u.movements && u.movements[0]) || null;
     const sapLabel = stageLabelFor(u.statusCode);
     const realLabel = latest ? stageLabelFor(latest.status_code) : null;
@@ -3043,6 +3107,10 @@ function renderApReconReport(){
       mismatch: !latest || latest.status_code !== u.statusCode,
     };
   }).sort((a,b)=> (b.mismatch - a.mismatch) || (a.vin||'').localeCompare(b.vin||''));
+  renderApReconBody();
+}
+function renderApReconBody(){
+  const rows = sortRowsBy(apReconData, apReconSort, apReconGetters);
   const body = document.getElementById('apReconBody');
   const err = document.getElementById('apReconError');
   err.hidden = rows.length > 0;
@@ -3056,6 +3124,7 @@ function renderApReconReport(){
     <td>${r.flaggedAt ? fmtDate(new Date(r.flaggedAt)) : ''}</td>
   </tr>`).join('');
 }
+wireSortableHead(document.getElementById('apReconHead'), apReconSort, renderApReconBody);
 const apReconOverlay = document.getElementById('apReconOverlay');
 document.getElementById('apReconBtn').addEventListener('click', ()=>{
   renderApReconReport();
@@ -3200,6 +3269,61 @@ let trendChartMode = 'dept';
 let trendChartData = null;
 const TREND_PALETTE = ['#1f5fa8','#c23b3b','#c07a11','#1c8a4c','#8a4fc2','#e0679c','#6b7480'];
 let trendTableState = null;
+let defectsByVinData = [];
+let repeatOffendersData = [];
+function unitRowSortGetters(){
+  return {
+    sr: r=>r.u ? Number(r.u.sr) : null,
+    vin: r=>r.u ? r.u.vin : r.vinSuffix,
+    color: r=>r.u ? (r.u.colorCode||'') : '',
+    stage: r=>r.u ? (effectiveStage(r.u)?.label || '') : '',
+    count: r=>r.count,
+  };
+}
+function renderDefectsByVinTable(){
+  const sorted = sortRowsBy(defectsByVinData, defectsByVinSort, unitRowSortGetters());
+  document.getElementById('defectsByVinBody').innerHTML = sorted.map((r,i)=>{
+    const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
+    return `<tr data-vin="${escapeHtml(r.u?r.u.vin:'')}" data-sr="${r.u?r.u.sr:''}" style="cursor:pointer">
+      <td>${i+1}</td>
+      <td><span class="vin">${escapeHtml(r.u ? r.u.vin : r.vinSuffix)}</span></td>
+      <td>${swatch}${escapeHtml(r.u ? (r.u.colorCode||'') : '')}</td>
+      <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
+      <td>${r.count}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="5"><div class="emptynote">No defects recorded.</div></td></tr>`;
+  document.getElementById('defectsByVinBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
+    if(!tr.dataset.sr) return;
+    tr.addEventListener('click', ()=>{
+      tabbarEl.querySelector('[data-tab="roster"]').click();
+      openDrawer(tr.dataset.vin, +tr.dataset.sr);
+    });
+  });
+}
+function renderRepeatOffendersTable(){
+  const getters = {...unitRowSortGetters(), stations: r=>r.stations.length};
+  const sorted = sortRowsBy(repeatOffendersData, repeatOffendersSort, getters);
+  document.getElementById('repeatOffendersBody').innerHTML = sorted.map((r,i)=>{
+    const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
+    return `<tr data-vin="${escapeHtml(r.u?r.u.vin:'')}" data-sr="${r.u?r.u.sr:''}" style="cursor:pointer">
+      <td>${i+1}</td>
+      <td><span class="vin">${escapeHtml(r.u ? r.u.vin : r.vinSuffix)}</span></td>
+      <td>${swatch}${escapeHtml(r.u ? (r.u.colorCode||'') : '')}</td>
+      <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
+      <td>${escapeHtml(r.stations.join(', '))}</td>
+      <td>${r.count}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6"><div class="emptynote">No unit has defects at 2 or more stations.</div></td></tr>`;
+  document.getElementById('repeatOffendersBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
+    if(!tr.dataset.sr) return;
+    tr.addEventListener('click', ()=>{
+      tabbarEl.querySelector('[data-tab="roster"]').click();
+      openDrawer(tr.dataset.vin, +tr.dataset.sr);
+    });
+  });
+}
+wireSortableHead(document.getElementById('defectsByVinHead'), defectsByVinSort, renderDefectsByVinTable);
+wireSortableHead(document.getElementById('repeatOffendersHead'), repeatOffendersSort, renderRepeatOffendersTable);
 let trendSplitFraction = 0.5;
 function computeTrend(units, valueFn, splitFraction){
   const n = units.length;
@@ -3423,68 +3547,43 @@ function renderAnalysis(){
     topDefects.some(t=>t.byDept[dept])
   );
   const topDefectsHead = document.getElementById('topDefectsHead');
-  topDefectsHead.innerHTML = `<tr><th>Defect</th><th>Station</th>${deptCols.map(d=>`<th>${escapeHtml(d)}</th>`).join('')}<th>Occurrences</th></tr>`;
-  const topDefectsBody = document.getElementById('topDefectsBody');
-  topDefectsBody.innerHTML = topDefects.map((t,i)=>{
-    const deptCells = deptCols.map(d=>`<td>${t.byDept[d]||''}</td>`).join('');
-    return `<tr class="detail-row" data-i="${i}"><td>${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td>${deptCells}<td>${t.count}</td></tr>`;
-  }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">No defects recorded.</div></td></tr>`;
-  topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
-    const t = topDefects[+tr.dataset.i];
-    tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} occurrence${t.count===1?'':'s'} at ${t.station}`, 'defects', t.rows, t.desc.trim().toUpperCase()));
-  });
+  topDefectsHead.innerHTML = `<tr>
+    <th class="sortable" data-col="desc">Defect <span class="sortic" data-col="desc"></span></th>
+    <th class="sortable" data-col="station">Station <span class="sortic" data-col="station"></span></th>
+    ${deptCols.map(d=>`<th>${escapeHtml(d)}</th>`).join('')}
+    <th class="sortable" data-col="count">Occurrences <span class="sortic" data-col="count"></span></th>
+  </tr>`;
+  const topDefectsGetters = {desc:t=>t.desc, station:t=>t.station, count:t=>t.count};
+  function renderTopDefectsBody(){
+    const sorted = sortRowsBy(topDefects, topDefectsSort, topDefectsGetters);
+    const topDefectsBody = document.getElementById('topDefectsBody');
+    topDefectsBody.innerHTML = sorted.map((t,i)=>{
+      const deptCells = deptCols.map(d=>`<td>${t.byDept[d]||''}</td>`).join('');
+      return `<tr class="detail-row" data-i="${i}"><td>${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td>${deptCells}<td>${t.count}</td></tr>`;
+    }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">No defects recorded.</div></td></tr>`;
+    topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
+      const t = sorted[+tr.dataset.i];
+      tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} occurrence${t.count===1?'':'s'} at ${t.station}`, 'defects', t.rows, t.desc.trim().toUpperCase()));
+    });
+  }
+  wireSortableHead(topDefectsHead, topDefectsSort, renderTopDefectsBody);
+  renderTopDefectsBody();
   renderParetoChart('paretoDescSvg', topDefects.map(t=>({label:t.desc, count:t.count, rows:t.rows, station:t.station})),
     t=>openDefectDetail(t.label, `${t.count} occurrence${t.count===1?'':'s'} at ${t.station}`, 'defects', t.rows, t.label.trim().toUpperCase()));
 
-  // ---- Defects by unit: VIN ascending, with a running S. No. (click straight through to that VIN's card) ----
-  const vinRowsAscending = [...vinRows].sort((a,b)=>
-    (a.u ? a.u.vin : a.vinSuffix).localeCompare(b.u ? b.u.vin : b.vinSuffix));
-  document.getElementById('defectsByVinBody').innerHTML = vinRowsAscending.map((r,i)=>{
-    const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
-    return `<tr data-vin="${escapeHtml(r.u?r.u.vin:'')}" data-sr="${r.u?r.u.sr:''}">
-      <td>${i+1}</td>
-      <td><span class="vin">${escapeHtml(r.u ? r.u.vin : r.vinSuffix)}</span></td>
-      <td>${swatch}${escapeHtml(r.u ? (r.u.colorCode||'') : '')}</td>
-      <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
-      <td>${r.count}</td>
-    </tr>`;
-  }).join('') || `<tr><td colspan="5"><div class="emptynote">No defects recorded.</div></td></tr>`;
-  document.getElementById('defectsByVinBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
-    if(!tr.dataset.sr) return;
-    tr.style.cursor = 'pointer';
-    tr.addEventListener('click', ()=>{
-      tabbarEl.querySelector('[data-tab="roster"]').click();
-      openDrawer(tr.dataset.vin, +tr.dataset.sr);
-    });
-  });
+  // ---- Defects by unit (click straight through to that VIN's card) ----
+  defectsByVinData = vinRows;
+  renderDefectsByVinTable();
 
   // ---- Repeat offenders: units with defects at 2+ distinct stations ----
-  const repeatOffenders = vinRows
+  repeatOffendersData = vinRows
     .map(r=>{
       const rows = defectsByVin[r.vinSuffix] || [];
       const stations = [...new Set(rows.map(d=>d[1]))];
       return {...r, stations, rows};
     })
-    .filter(r=>r.stations.length >= 2)
-    .sort((a,b)=> b.stations.length - a.stations.length || b.count - a.count);
-  document.getElementById('repeatOffendersBody').innerHTML = repeatOffenders.map((r,i)=>{
-    const swatch = r.u && r.u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[r.u.colorCode]||'#ccc'}"></span>` : '';
-    return `<tr data-vin="${escapeHtml(r.u?r.u.vin:'')}" data-sr="${r.u?r.u.sr:''}" style="cursor:pointer">
-      <td>${i+1}</td>
-      <td><span class="vin">${escapeHtml(r.u ? r.u.vin : r.vinSuffix)}</span></td>
-      <td>${swatch}${escapeHtml(r.u ? (r.u.colorCode||'') : '')}</td>
-      <td>${r.u ? stageBadgeHtml(r.u) : ''}</td>
-      <td>${escapeHtml(r.stations.join(', '))}</td>
-      <td>${r.count}</td>
-    </tr>`;
-  }).join('') || `<tr><td colspan="6"><div class="emptynote">No unit has defects at 2 or more stations.</div></td></tr>`;
-  document.getElementById('repeatOffendersBody').querySelectorAll('tr[data-sr]').forEach(tr=>{
-    if(!tr.dataset.sr) return;
-    tr.addEventListener('click', ()=>{
-      tabbarEl.querySelector('[data-tab="roster"]').click();
-      openDrawer(tr.dataset.vin, +tr.dataset.sr);
-    });
-  });
+    .filter(r=>r.stations.length >= 2);
+  renderRepeatOffendersTable();
 }
 
 function renderTrendChart(){
@@ -3661,9 +3760,23 @@ document.getElementById('reportRefresh').addEventListener('click', ()=>{ reportW
 // or the fetch itself failed) — an empty array (query succeeded, table has
 // zero rows, e.g. right after Clear) is returned as-is and IS authoritative,
 // not treated the same as "couldn't fetch, keep showing the last data".
+// Supabase caps every query at 1,000 rows by default, so a large upload (a
+// 2,000-line defect report) was silently truncated on load. Page through in
+// 1,000-row chunks with a stable order until a short page comes back.
+async function fetchAllRows(table, orderCol){
+  const PAGE = 1000;
+  const all = [];
+  for(let from = 0; ; from += PAGE){
+    const { data, error } = await sb.from(table).select('*').order(orderCol, {ascending:true}).range(from, from + PAGE - 1);
+    if(error) return { data: null, error };
+    all.push(...data);
+    if(data.length < PAGE) break;
+  }
+  return { data: all, error: null };
+}
 async function loadProductionFromSupabase(){
   if(!sb) return null;
-  const { data, error } = await sb.from('production_rows').select('*');
+  const { data, error } = await fetchAllRows('production_rows', 'vin');
   if(error){ console.error(error); return null; }
   if(!data) return null;
   data.sort((a,b)=>(a.batch||'').localeCompare(b.batch||''));
@@ -3673,13 +3786,13 @@ async function loadProductionFromSupabase(){
 }
 async function loadDefectsFromSupabase(){
   if(!sb) return null;
-  const { data, error } = await sb.from('defect_rows').select('*');
+  const { data, error } = await fetchAllRows('defect_rows', 'id');
   if(error){ console.error(error); return null; }
   return data; // [] is meaningful here (an uploaded report with zero rows), unlike production
 }
 async function loadManualDefectsFromSupabase(){
   if(!sb) return null;
-  const { data, error } = await sb.from('manual_defects').select('*');
+  const { data, error } = await fetchAllRows('manual_defects', 'id');
   if(error){ console.error(error); return null; }
   return data;
 }
@@ -4072,8 +4185,10 @@ function wireManualUpload(){
     try{
       const delD = await sb.from('manual_defects').delete().not('id', 'is', null);
       if(delD.error) throw delD.error;
-      const insD = await sb.from('manual_defects').insert(defects);
-      if(insD.error) throw insD.error;
+      for(let i = 0; i < defects.length; i += 500){
+        const insD = await sb.from('manual_defects').insert(defects.slice(i, i + 500));
+        if(insD.error) throw insD.error;
+      }
       const statusRows = [...statuses.entries()].map(([vin, s])=>({vin, location:s.location, location_note:s.location_note}));
       if(statusRows.length){
         const delS = await sb.from('manual_vehicle_status').delete().not('vin', 'is', null);
