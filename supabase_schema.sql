@@ -422,6 +422,8 @@ create table if not exists public.defect_annotations (
   description text,          -- original-case example text, for display
   photo_url text,            -- legacy single-photo column, superseded by photo_urls
   photo_urls text[] not null default '{}',
+  is_critical boolean not null default false,  -- flagged for management attention
+  critical_reason text,
   root_cause text,
   corrective_action text,
   status text not null default 'open' check (status in ('open','closed')),

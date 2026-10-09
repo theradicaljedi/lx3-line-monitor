@@ -222,6 +222,17 @@ th.sortable:hover{color:var(--ink)}
 .photonavbtn:hover{background:rgba(0,0,0,.75)}
 .photonavcount{position:absolute;bottom:4px;right:6px;font-size:10px;color:#fff;background:rgba(0,0,0,.55);padding:1px 6px;border-radius:10px}
 .defannot-photobox img{cursor:zoom-in}
+.defannot-fields label.critflag{display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:12.5px;font-weight:600;color:var(--ink);padding:8px 10px;border:1px dashed var(--line);border-radius:8px;cursor:pointer;margin-top:0}
+.defannot-fields label.critflag.on{border:1px solid #c0392b;background:#fdecea;color:#a93226}
+.defannot-fields label.critflag input{width:16px;height:16px;accent-color:#c0392b}
+.critbadge{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#fff;background:#c0392b;border-radius:10px;padding:2px 7px;margin-right:6px;vertical-align:middle}
+.critpanel{border-left:4px solid #c0392b}
+.crititem{padding:10px 0;border-top:1px solid var(--line);cursor:pointer}
+.crititem:first-child{border-top:none}
+.crititem:hover{background:var(--surface-2)}
+.crititem .crittitle{font-weight:600}
+.crititem .critmeta{font-size:11.5px;color:var(--muted);margin-top:2px}
+.crititem .critreasontext{font-size:12.5px;margin-top:4px}
 .photo-lightbox{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:200;display:flex;align-items:center;justify-content:center}
 .photo-lightbox img{max-width:90vw;max-height:85vh;object-fit:contain;border-radius:4px}
 .lightbox-close{position:absolute;top:16px;right:16px;background:rgba(255,255,255,.15);color:#fff;border:none;width:36px;height:36px;border-radius:50%;font-size:20px;cursor:pointer}
@@ -645,6 +656,12 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
 
   <div id="tabAnalysis" hidden>
     <div class="kpis" id="defectKpis"></div>
+
+    <div class="panel critpanel" id="criticalPanel" hidden>
+      <h2>&#9873; Critical issues &mdash; management attention</h2>
+      <div class="desc">Defects flagged as critical. Click one to open its details, photos and root cause.</div>
+      <div id="criticalList"></div>
+    </div>
 
     <div class="panelrow">
       <div class="panel">
@@ -1272,6 +1289,11 @@ function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
           ${canEdit ? `<button type="button" class="clearbtn" id="defannotStatusToggle">Mark ${isClosed?'Open':'Closed'}</button>` : ''}
           ${a.updated_by ? `<span class="emptynote">Last updated by ${escapeHtml(a.updated_by)}${a.updated_at ? ' on '+fmtDate(new Date(a.updated_at)) : ''}</span>` : ''}
         </div>
+        <label class="critflag ${a.is_critical?'on':''}" id="defannotCriticalWrap">
+          <input type="checkbox" id="defannotCritical" ${a.is_critical?'checked':''} ${canEdit?'':'disabled'}>
+          <span>&#9873; Critical &mdash; needs management attention</span>
+        </label>
+        <textarea id="defannotCriticalReason" class="critreason" ${canEdit?'':'disabled'} ${(a.is_critical && (canEdit || a.critical_reason))?'':'hidden'} placeholder="${canEdit?'Why is this critical? (impact, risk, deadline…)':''}">${escapeHtml(a.critical_reason||'')}</textarea>
         <label for="defannotRootCause">Root Cause Analysis</label>
         <textarea id="defannotRootCause" ${canEdit?'':'disabled'} placeholder="${canEdit?'What caused this defect…':'Not recorded yet'}">${escapeHtml(a.root_cause||'')}</textarea>
         <label for="defannotCorrective">Corrective Action / Preventive Action</label>
@@ -1283,6 +1305,10 @@ function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
   wireDefannotPhotoBox();
   if(!canEdit) return;
 
+  document.getElementById('defannotCritical').addEventListener('change', e=>{
+    document.getElementById('defannotCriticalWrap').classList.toggle('on', e.target.checked);
+    document.getElementById('defannotCriticalReason').hidden = !e.target.checked;
+  });
   let pendingStatus = a.status || 'open';
   document.getElementById('defannotStatusToggle').addEventListener('click', ()=>{
     pendingStatus = pendingStatus === 'closed' ? 'open' : 'closed';
@@ -1309,6 +1335,8 @@ function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
       description: displayDesc,
       photo_url: finalUrls[0] || null,
       photo_urls: finalUrls,
+      is_critical: document.getElementById('defannotCritical').checked,
+      critical_reason: document.getElementById('defannotCritical').checked ? (document.getElementById('defannotCriticalReason').value.trim() || null) : null,
       root_cause: document.getElementById('defannotRootCause').value.trim() || null,
       corrective_action: document.getElementById('defannotCorrective').value.trim() || null,
       status: pendingStatus,
@@ -1319,6 +1347,7 @@ function renderDefectAnnotationPanel(annotKey, displayDesc, rows){
     btn.disabled = false; btn.textContent = 'Save';
     if(error){ alert(`Couldn't save: ${error.message}`); return; }
     await loadDefectAnnotations();
+    renderAnalysis(); // refresh the Critical issues panel and badges behind the modal
     logActivity('defect_annotation_save', displayDesc.slice(0,120));
     renderDefectAnnotationPanel(annotKey, displayDesc, rows);
   });
@@ -3582,6 +3611,30 @@ function renderAnalysis(){
     byDesc[key].byDept[dept] = (byDesc[key].byDept[dept] || 0) + 1;
   });
   const topDefects = Object.values(byDesc).sort((a,b)=>b.count-a.count).slice(0,15);
+
+  // ---- Critical issues flagged for management (any defect, not just the top 15) ----
+  const critItems = Object.entries(DEFECT_ANNOTATIONS)
+    .filter(([,a])=>a.is_critical)
+    .map(([key,a])=>({key, a, g: byDesc[key] || null}))
+    .sort((x,y)=> (x.a.status==='closed') - (y.a.status==='closed') || ((y.g?y.g.count:0) - (x.g?x.g.count:0)));
+  const critPanel = document.getElementById('criticalPanel');
+  critPanel.hidden = !critItems.length;
+  document.getElementById('criticalList').innerHTML = critItems.map((c,i)=>{
+    const count = c.g ? c.g.count : 0;
+    const station = c.g ? c.g.station : '';
+    return `<div class="crititem" data-i="${i}" tabindex="0" role="button">
+      <div class="crittitle"><span class="critbadge">Critical</span>${escapeHtml(c.a.description || c.key)}
+        <span class="statuspill ${c.a.status==='closed'?'closed':'open'}">${c.a.status==='closed'?'Closed':'Open'}</span></div>
+      <div class="critmeta">${count} occurrence${count===1?'':'s'}${station?' at '+escapeHtml(station):''}${c.a.updated_by?' &middot; flagged by '+escapeHtml(c.a.updated_by):''}</div>
+      ${c.a.critical_reason ? `<div class="critreasontext">${escapeHtml(c.a.critical_reason)}</div>` : ''}
+    </div>`;
+  }).join('');
+  document.getElementById('criticalList').querySelectorAll('.crititem').forEach(el=>{
+    const c = critItems[+el.dataset.i];
+    const open = ()=>openDefectDetail(c.a.description || c.key, `${c.g?c.g.count:0} occurrence${(c.g&&c.g.count===1)?'':'s'}${c.g?' at '+c.g.station:''}`, 'defects', c.g ? c.g.rows : [], c.key);
+    el.addEventListener('click', open);
+    el.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); open(); } });
+  });
   // Department columns, in a fixed order — only the ones actually present
   // among these top 15 defects, so an unused department doesn't add a
   // permanently-empty column.
@@ -3601,7 +3654,8 @@ function renderAnalysis(){
     const topDefectsBody = document.getElementById('topDefectsBody');
     topDefectsBody.innerHTML = sorted.map((t,i)=>{
       const deptCells = deptCols.map(d=>`<td>${t.byDept[d]||''}</td>`).join('');
-      return `<tr class="detail-row" data-i="${i}"><td>${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td>${deptCells}<td>${t.count}</td></tr>`;
+      const crit = (DEFECT_ANNOTATIONS[t.desc.trim().toUpperCase()]||{}).is_critical ? '<span class="critbadge">Critical</span>' : '';
+      return `<tr class="detail-row" data-i="${i}"><td>${crit}${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td>${deptCells}<td>${t.count}</td></tr>`;
     }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">No defects recorded.</div></td></tr>`;
     topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
       const t = sorted[+tr.dataset.i];
