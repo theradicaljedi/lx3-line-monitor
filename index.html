@@ -710,7 +710,8 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
 
     <div class="panel">
       <h2>Most frequent defects</h2>
-      <div class="desc">Grouped by defect wording &mdash; same defect reported on different units counts as separate occurrences</div>
+      <div class="desc">Grouped by defect wording &mdash; same defect reported on different units counts as separate occurrences. Defects flagged <span class="critbadge">Critical</span> are always listed, even outside the top 15.</div>
+      <div class="toolbar"><label class="bu-toggle"><input type="checkbox" id="topDefectsCriticalOnly"> Show critical only</label></div>
       <div class="tablewrap compact">
         <table>
           <thead id="topDefectsHead"></thead>
@@ -3393,6 +3394,7 @@ function renderRepeatOffendersTable(){
     });
   });
 }
+document.getElementById('topDefectsCriticalOnly').addEventListener('change', ()=>renderAnalysis());
 wireSortableHead(document.getElementById('defectsByVinHead'), defectsByVinSort, renderDefectsByVinTable);
 wireSortableHead(document.getElementById('repeatOffendersHead'), repeatOffendersSort, renderRepeatOffendersTable);
 let trendSplitFraction = 0.5;
@@ -3638,8 +3640,12 @@ function renderAnalysis(){
   // Department columns, in a fixed order — only the ones actually present
   // among these top 15 defects, so an unused department doesn't add a
   // permanently-empty column.
+  // Critical defects are always listed here even when they fall outside the
+  // top 15 by count, so a flagged issue can never drop out of view.
+  const isCrit = t => !!(DEFECT_ANNOTATIONS[t.desc.trim().toUpperCase()]||{}).is_critical;
+  const tableDefects = [...topDefects, ...Object.values(byDesc).filter(t=>isCrit(t) && !topDefects.includes(t))];
   const deptCols = [...DEPT_LABELS_ORDER, 'Unassigned'].filter(dept=>
-    topDefects.some(t=>t.byDept[dept])
+    tableDefects.some(t=>t.byDept[dept])
   );
   const topDefectsHead = document.getElementById('topDefectsHead');
   topDefectsHead.innerHTML = `<tr>
@@ -3650,13 +3656,17 @@ function renderAnalysis(){
   </tr>`;
   const topDefectsGetters = {desc:t=>t.desc, station:t=>t.station, count:t=>t.count};
   function renderTopDefectsBody(){
-    const sorted = sortRowsBy(topDefects, topDefectsSort, topDefectsGetters);
+    const criticalOnly = document.getElementById('topDefectsCriticalOnly').checked;
+    let base = criticalOnly ? tableDefects.filter(isCrit) : tableDefects;
+    // default order: critical first, then by count (tableDefects is already by count)
+    if(!topDefectsSort.col) base = [...base.filter(isCrit), ...base.filter(t=>!isCrit(t))];
+    const sorted = sortRowsBy(base, topDefectsSort, topDefectsGetters);
     const topDefectsBody = document.getElementById('topDefectsBody');
     topDefectsBody.innerHTML = sorted.map((t,i)=>{
       const deptCells = deptCols.map(d=>`<td>${t.byDept[d]||''}</td>`).join('');
-      const crit = (DEFECT_ANNOTATIONS[t.desc.trim().toUpperCase()]||{}).is_critical ? '<span class="critbadge">Critical</span>' : '';
+      const crit = isCrit(t) ? '<span class="critbadge">Critical</span>' : '';
       return `<tr class="detail-row" data-i="${i}"><td>${crit}${escapeHtml(t.desc)}</td><td>${escapeHtml(t.station)}</td>${deptCells}<td>${t.count}</td></tr>`;
-    }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">No defects recorded.</div></td></tr>`;
+    }).join('') || `<tr><td colspan="${3+deptCols.length}"><div class="emptynote">${criticalOnly ? 'No defects have been flagged as critical.' : 'No defects recorded.'}</div></td></tr>`;
     topDefectsBody.querySelectorAll('tr[data-i]').forEach(tr=>{
       const t = sorted[+tr.dataset.i];
       tr.addEventListener('click', ()=>openDefectDetail(t.desc, `${t.count} occurrence${t.count===1?'':'s'} at ${t.station}`, 'defects', t.rows, t.desc.trim().toUpperCase()));
