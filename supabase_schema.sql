@@ -40,9 +40,14 @@ create table if not exists public.user_roles (
   -- issues) the way editor/admin have. Admins always have this regardless
   -- of the flag's value (see can_manage_advance_posted below).
   advance_posted_access boolean not null default false,
+  -- Per-user toggle for the "Download defect report (Excel)" button; admins
+  -- always have it. UI-level gate only (the underlying data is readable by
+  -- any signed-in account anyway).
+  can_download_reports boolean not null default false,
   updated_at timestamptz not null default now()
 );
 alter table public.user_roles add column if not exists advance_posted_access boolean not null default false;
+alter table public.user_roles add column if not exists can_download_reports boolean not null default false;
 alter table public.user_roles drop constraint if exists user_roles_role_check;
 alter table public.user_roles add constraint user_roles_role_check check (role in ('admin','editor','viewer'));
 alter table public.user_roles enable row level security;
