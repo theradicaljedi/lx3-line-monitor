@@ -496,6 +496,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
         <button type="button" class="markbtn" id="newUserSubmit">Create account</button>
       </div>
       <label class="bu-toggle" style="margin-bottom:8px"><input type="checkbox" id="newUserApAccess"> Manual Edits</label>
+      <label class="bu-toggle" style="margin-bottom:8px"><input type="checkbox" id="newUserReports"> Reports (download Excel)</label>
       <div id="newUserError" class="signin-error" hidden></div>
       <div id="newUserStatus" class="emptynote" hidden></div>
 
@@ -503,7 +504,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
       <div id="usersError" class="signin-error" hidden></div>
       <div class="tablewrap detail-tablewrap compact">
         <table>
-          <thead><tr><th>Email</th><th>Role</th><th>Manual Edits</th></tr></thead>
+          <thead><tr><th>Email</th><th>Role</th><th>Manual Edits</th><th>Reports</th></tr></thead>
           <tbody id="usersBody"></tbody>
         </table>
       </div>
@@ -655,7 +656,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
   </div>
 
   <div id="tabAnalysis" hidden>
-    <div class="toolbar" style="justify-content:flex-end;margin-bottom:10px">
+    <div class="toolbar" id="defectExcelBar" hidden style="justify-content:flex-end;margin-bottom:10px">
       <button type="button" class="iconbtn" id="defectExcelBtn" title="One row per defect: VIN, station, defect, date">&#128196; Download defect report (Excel)</button>
     </div>
     <div class="kpis" id="defectKpis"></div>
@@ -825,6 +826,9 @@ let currentRole = null;
 // A toggle, not a role — any account (whatever its base role) can be
 // separately granted this from Manage Users, independent of canWriteNow().
 let currentAdvancePostedAccess = false;
+let currentCanDownloadReports = false;
+// Admin always; anyone else only when an admin ticks "Reports" for them in Manage Users.
+function canDownloadReports(){ return !!sb && !!currentSession && (currentRole==="admin" || currentCanDownloadReports); }
 function canWriteNow(){ return !!sb && !!currentSession && (currentRole==="admin" || currentRole==="editor"); }
 // Narrower than canWriteNow(): only admin, or an account with the
 // advance_posted_access toggle on, can flag/unflag units as Advance Posted
@@ -838,10 +842,11 @@ const ROLE_LABELS = { admin:"Admin", editor:"Editor", viewer:"Viewer" };
 // accountable for this workflow, not which specific login.
 function currentRoleLabel(){ return ROLE_LABELS[currentRole] || currentRole || 'Unknown'; }
 async function loadCurrentRole(){
-  if(!sb || !currentSession){ currentRole = null; currentAdvancePostedAccess = false; return; }
-  const { data, error } = await sb.from('user_roles').select('role,advance_posted_access').eq('user_id', currentSession.user.id).maybeSingle();
+  if(!sb || !currentSession){ currentRole = null; currentAdvancePostedAccess = false; currentCanDownloadReports = false; return; }
+  const { data, error } = await sb.from('user_roles').select('role,advance_posted_access,can_download_reports').eq('user_id', currentSession.user.id).maybeSingle();
   currentRole = (!error && data) ? data.role : 'viewer'; // viewer if the row hasn't been provisioned yet
   currentAdvancePostedAccess = !!(data && data.advance_posted_access);
+  currentCanDownloadReports = !!(data && data.can_download_reports);
 }
 // Cache of the latest units_data row per VIN — the roster's VQ-line dots
 // read from here (renderTable/vqMiniHtml) so a checklist tap made in the
@@ -879,6 +884,7 @@ const signinPassword = document.getElementById('signinPassword');
 const signinError = document.getElementById('signinError');
 
 function renderAuthArea(){
+  document.getElementById('defectExcelBar').hidden = !canDownloadReports();
   const scopeBtnEl = document.getElementById('scopeBtn');
   const dailyReportBtnEl = document.getElementById('dailyReportBtn');
   const uploadBtnEl = document.getElementById('uploadBtn');
@@ -1502,7 +1508,7 @@ document.getElementById('usersModalClose').addEventListener('click', closeUsersM
 usersOverlay.addEventListener('click', e=>{ if(e.target===usersOverlay) closeUsersModal(); });
 async function loadUsersModal(){
   const body = document.getElementById('usersBody');
-  body.innerHTML = '<tr><td colspan="3"><div class="emptynote">Loading&hellip;</div></td></tr>';
+  body.innerHTML = '<tr><td colspan="4"><div class="emptynote">Loading&hellip;</div></td></tr>';
   const { data, error } = await sb.from('user_roles').select('*').order('email');
   if(error){ usersError.textContent = error.message; usersError.hidden = false; body.innerHTML = ''; return; }
   body.innerHTML = data.map(r=>`<tr data-uid="${r.user_id}">
@@ -1511,7 +1517,8 @@ async function loadUsersModal(){
       ${['admin','editor','viewer'].map(role=>`<option value="${role}" ${r.role===role?'selected':''}>${ROLE_LABELS[role]}</option>`).join('')}
     </select></td>
     <td><input type="checkbox" class="apaccesscheck" data-uid="${r.user_id}" data-email="${escapeHtml(r.email||'')}" ${r.advance_posted_access?'checked':''} title="Manual Edits: can flag/unflag Advance Posted units and log their real location"></td>
-  </tr>`).join('') || '<tr><td colspan="3"><div class="emptynote">No accounts yet — sign in with each account once so its row is provisioned.</div></td></tr>';
+    <td><input type="checkbox" class="reportscheck" data-uid="${r.user_id}" data-email="${escapeHtml(r.email||'')}" ${(r.can_download_reports||r.role==='admin')?'checked':''} ${r.role==='admin'?'disabled':''} title="${r.role==='admin'?'Admins can always download reports':'Reports: can download the defect report as an Excel file'}"></td>
+  </tr>`).join('') || '<tr><td colspan="4"><div class="emptynote">No accounts yet — sign in with each account once so its row is provisioned.</div></td></tr>';
   body.querySelectorAll('.roleselect').forEach(sel=>{
     sel.addEventListener('change', async ()=>{
       const uid = sel.dataset.uid;
@@ -1538,6 +1545,19 @@ async function loadUsersModal(){
       if(uid === currentSession.user.id){ currentAdvancePostedAccess = granted; renderAuthArea(); }
     });
   });
+  body.querySelectorAll('.reportscheck:not(:disabled)').forEach(cb=>{
+    cb.addEventListener('change', async ()=>{
+      const uid = cb.dataset.uid;
+      const granted = cb.checked;
+      cb.disabled = true;
+      const { error: updErr } = await sb.from('user_roles').update({ can_download_reports: granted }).eq('user_id', uid);
+      cb.disabled = false;
+      if(updErr){ usersError.textContent = updErr.message; usersError.hidden = false; cb.checked = !granted; return; }
+      usersError.hidden = true;
+      logActivity('role_change', `${cb.dataset.email || uid} — Reports download ${granted?'granted':'revoked'}`);
+      if(uid === currentSession.user.id){ currentCanDownloadReports = granted; renderAuthArea(); }
+    });
+  });
 }
 
 document.getElementById('newUserSubmit').addEventListener('click', async ()=>{
@@ -1545,6 +1565,7 @@ document.getElementById('newUserSubmit').addEventListener('click', async ()=>{
   const password = document.getElementById('newUserPassword').value;
   const role = document.getElementById('newUserRole').value;
   const apAccess = document.getElementById('newUserApAccess').checked;
+  const reportsAccess = document.getElementById('newUserReports').checked;
   const newUserError = document.getElementById('newUserError');
   const newUserStatus = document.getElementById('newUserStatus');
   newUserError.hidden = true; newUserStatus.hidden = true;
@@ -1565,12 +1586,13 @@ document.getElementById('newUserSubmit').addEventListener('click', async ()=>{
   btn.disabled = false;
   if(error){ newUserError.textContent = error.message; newUserError.hidden = false; return; }
   if(data && data.user){
-    await sb.from('user_roles').upsert({ user_id: data.user.id, email, role, advance_posted_access: apAccess });
+    await sb.from('user_roles').upsert({ user_id: data.user.id, email, role, advance_posted_access: apAccess, can_download_reports: reportsAccess });
   }
   document.getElementById('newUserEmail').value = '';
   document.getElementById('newUserPassword').value = '';
   document.getElementById('newUserRole').value = 'viewer';
   document.getElementById('newUserApAccess').checked = false;
+  document.getElementById('newUserReports').checked = false;
   newUserStatus.textContent = (data && data.session)
     ? `Account created as ${role}. Share the password with them directly.`
     : `Account created as ${role}. Supabase emailed them a confirmation link — they must click it before they can sign in.`;
@@ -3402,6 +3424,7 @@ document.getElementById('topDefectsCriticalOnly').addEventListener('change', ()=
 
 // ---------- Excel export: one row per defect (VIN, station, defect, date) ----------
 function downloadDefectExcel(){
+  if(!canDownloadReports()) return; // button is hidden for others; this is the belt-and-suspenders check
   if(!DEFECTS.length){ alert('There are no defects to export yet.'); return; }
   const vinOf = d => (UNIT_BY_SUFFIX.get(d[0])||{}).vin || d[0];
   const rows = [...DEFECTS].sort((a,b)=>
