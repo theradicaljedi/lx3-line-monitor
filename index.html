@@ -3948,7 +3948,7 @@ async function fetchAllRows(table, orderCol){
 }
 async function loadProductionFromSupabase(){
   if(!sb) return null;
-  const { data, error } = await fetchAllRows('production_rows', 'vin');
+  const { data, error } = await fetchAllRows('production_rows', 'id');
   if(error){ console.error(error); return null; }
   if(!data) return null;
   data.sort((a,b)=>(a.batch||'').localeCompare(b.batch||''));

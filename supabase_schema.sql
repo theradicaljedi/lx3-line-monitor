@@ -175,8 +175,12 @@ end $$;
 -- accounts only, both to read and to write.
 -- =====================================================================
 
+-- batch is NOT unique: the plant sheet can reuse a batch number for different
+-- VINs (e.g. LX000828-830 appeared twice), which made the whole upload fail
+-- when batch was the primary key. Rows are keyed by a generated id instead.
 create table if not exists public.production_rows (
-  batch text primary key,
+  id bigint generated always as identity primary key,
+  batch text not null,
   vin text,
   color_code text,
   color_desc text,
@@ -197,6 +201,11 @@ create table if not exists public.production_rows (
 alter table public.production_rows add column if not exists body_start int;
 alter table public.production_rows add column if not exists paint_start int;
 alter table public.production_rows add column if not exists tcf_start int;
+-- Migration for databases created when batch was still the primary key:
+alter table public.production_rows add column if not exists id bigint generated always as identity;
+alter table public.production_rows drop constraint if exists production_rows_pkey;
+alter table public.production_rows add primary key (id);
+create index if not exists production_rows_batch_idx on public.production_rows (batch);
 alter table public.production_rows enable row level security;
 drop policy if exists "production_read" on public.production_rows;
 create policy "production_read" on public.production_rows for select using ((select auth.role()) = 'authenticated');
