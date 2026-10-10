@@ -655,6 +655,9 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
   </div>
 
   <div id="tabAnalysis" hidden>
+    <div class="toolbar" style="justify-content:flex-end;margin-bottom:10px">
+      <button type="button" class="iconbtn" id="defectExcelBtn" title="One row per defect: VIN, station, defect, date">&#128196; Download defect report (Excel)</button>
+    </div>
     <div class="kpis" id="defectKpis"></div>
 
     <div class="panel critpanel" id="criticalPanel" hidden>
@@ -3243,6 +3246,7 @@ const ACTION_LABELS = {
   issue_reopen: 'Issue reopened',
   checklist_count_clear: 'Repeat count cleared',
   defect_annotation_save: 'Defect root cause/photo updated',
+  defect_excel_export: 'Defect report downloaded (Excel)',
   advance_posted_flag: 'Advance posted',
   advance_posted_unflag: 'Advance posted flag removed',
   advance_posted_status: 'Advance-posted location updated',
@@ -3395,6 +3399,45 @@ function renderRepeatOffendersTable(){
   });
 }
 document.getElementById('topDefectsCriticalOnly').addEventListener('change', ()=>renderAnalysis());
+
+// ---------- Excel export: one row per defect (VIN, station, defect, date) ----------
+function downloadDefectExcel(){
+  if(!DEFECTS.length){ alert('There are no defects to export yet.'); return; }
+  const vinOf = d => (UNIT_BY_SUFFIX.get(d[0])||{}).vin || d[0];
+  const rows = [...DEFECTS].sort((a,b)=>
+    vinOf(a).localeCompare(vinOf(b)) || (a[3]||0)-(b[3]||0) || String(a[1]).localeCompare(String(b[1])));
+  const header = ['S. No','VIN','Station','Defect observed','Date','Department','Severity'];
+  const ws = XLSX.utils.aoa_to_sheet([header]);
+  rows.forEach((d,i)=>{
+    const r = i + 2;
+    XLSX.utils.sheet_add_aoa(ws, [[i+1, vinOf(d), d[1]||'', d[2]||'', '', d[4]||'', d[5]||'']], {origin: `A${r}`});
+    if(d[3]) ws[`E${r}`] = { t:'n', v:Number(d[3]), z:'dd-mmm-yyyy' }; // exact Excel serial — no timezone drift
+  });
+  ws['!cols'] = [{wch:6},{wch:20},{wch:30},{wch:48},{wch:13},{wch:18},{wch:10}];
+  ws['!autofilter'] = { ref: `A1:G${rows.length+1}` };
+  ws['!freeze'] = { xSplit:0, ySplit:1 };
+
+  // Second sheet: one line per VIN with how many defects / which stations
+  const byVin = {};
+  rows.forEach(d=>{
+    const v = vinOf(d);
+    const g = byVin[v] || (byVin[v] = {count:0, stations:new Set()});
+    g.count++; g.stations.add(d[1]);
+  });
+  const summary = [['VIN','Defect count','Stations affected'],
+    ...Object.entries(byVin).sort((a,b)=>b[1].count-a[1].count || a[0].localeCompare(b[0]))
+      .map(([v,g])=>[v, g.count, [...g.stations].join(', ')])];
+  const ws2 = XLSX.utils.aoa_to_sheet(summary);
+  ws2['!cols'] = [{wch:20},{wch:13},{wch:60}];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Defects by VIN');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Summary by VIN');
+  const stamp = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `LX3_Defect_Report_${stamp}.xlsx`);
+  if(typeof logActivity === 'function' && currentSession) logActivity('defect_excel_export', `${rows.length} defects across ${Object.keys(byVin).length} units`);
+}
+document.getElementById('defectExcelBtn').addEventListener('click', downloadDefectExcel);
 wireSortableHead(document.getElementById('defectsByVinHead'), defectsByVinSort, renderDefectsByVinTable);
 wireSortableHead(document.getElementById('repeatOffendersHead'), repeatOffendersSort, renderRepeatOffendersTable);
 let trendSplitFraction = 0.5;
