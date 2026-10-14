@@ -2296,14 +2296,14 @@ document.querySelectorAll('#unitsTable th.sortable').forEach(th=>{
 });
 
 function stageBadgeHtml(u){
-  if(u.advancePosted){
-    if(u.secondaryStage){
-      const label = AP_STATUS_LABELS[u.secondaryStage.code] || u.secondaryStage.label;
-      return `<span class="badge apbadge" style="background:color-mix(in srgb, ${u.secondaryStage.color} 16%, transparent);color:${u.secondaryStage.color}" title="SAP shows ${escapeHtml(u.stage.label)} (advance posted for invoicing) — actual location tracked manually">${escapeHtml(label)}<span class="aptag">AP</span></span>`;
-    }
-    return `<span class="badge apbadge-pending" title="SAP shows ${escapeHtml(u.stage.label)} (advance posted for invoicing) — actual location not yet set">Advance Posted<span class="aptag">AP</span></span>`;
-  }
-  return `<span class="badge" style="background:color-mix(in srgb, ${u.stage.color} 16%, transparent);color:${u.stage.color}">${u.stage.label}</span>`;
+  // The SAP production upload is the source of truth for location. An
+  // advance-posted unit keeps its small AP tag, and any manual-tracker
+  // location is only mentioned in the hover text for reference.
+  const manual = u.advancePosted && u.secondaryStage
+    ? ` — manual tracker says: ${AP_STATUS_LABELS[u.secondaryStage.code] || u.secondaryStage.label}` : '';
+  const tag = u.advancePosted ? '<span class="aptag">AP</span>' : '';
+  const title = u.advancePosted ? ` title="Advance Posted${escapeHtml(manual)}"` : '';
+  return `<span class="badge" style="background:color-mix(in srgb, ${u.stage.color} 16%, transparent);color:${u.stage.color}"${title}>${u.stage.label}${tag}</span>`;
 }
 function checklistStateFor(u){
   const row = u.vin ? UNIT_ROWS_CACHE[u.vin] : null;
@@ -2742,20 +2742,20 @@ function renderMilestoneRow(label, erpDate, key, tappedValue, canWrite){
   }
   return `<div class="trow"><span>${label}</span><span class="d">${canWrite?`<button class="markbtn" data-mark="${key}">Mark today</button>`:'Not recorded'}</span></div>`;
 }
-// A manually-logged movement date, where one exists, takes precedence over
-// SAP's — an advance-posted unit's ERP dates are invoicing-driven and not
-// trustworthy for stages it hasn't genuinely reached yet.
+// SAP production-upload dates take precedence. A manually-logged movement
+// date (Advance Posted tracker) is only a fallback for a stage SAP has no
+// date for, and is tagged AP so it's clear where it came from.
 function renderMilestonesBody(row, canWrite){
   const u = currentDrawerUnit;
   const m = row || {};
   const rows = MILESTONE_ROWS.map(r=>{
-    const moveDate = movementDateFor(u, r.apCode);
+    const moveDate = (u && u[r.erpField]) ? null : movementDateFor(u, r.apCode);
     if(moveDate){
       return `<div class="trow"><span>${r.label}</span><span class="d">${fmtDate(new Date(moveDate+'T00:00:00Z'))}<span class="aptag">AP</span></span></div>`;
     }
     return renderMilestoneRow(r.label, u ? u[r.erpField] : null, r.key, m[r.key]||null, canWrite);
   }).join('');
-  const qcMoveDate = movementDateFor(u, '4010');
+  const qcMoveDate = (u && u.afInsp) ? null : movementDateFor(u, '4010');
   const qcRow = qcMoveDate
     ? `<div class="trow"><span>QC OK</span><span class="d">${fmtDate(new Date(qcMoveDate+'T00:00:00Z'))}<span class="aptag">AP</span></span></div>`
     : `<div class="trow"><span>QC OK</span><span class="d">${fmtDate(u ? u.afInsp : null)}</span></div>`;
@@ -2766,9 +2766,11 @@ function renderMilestonesBody(row, canWrite){
 function metaRowsHtml(u){
   const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : '';
   const stage = effectiveStage(u);
-  const stageLabel = (u.advancePosted && !u.secondaryStatusCode) ? 'Advance Posted (pending)' : (AP_STATUS_LABELS[stage.code]||stage.label);
+  const stageLabel = AP_STATUS_LABELS[stage.code]||stage.label; // SAP upload location
+  const manualNote = (u.advancePosted && u.secondaryStage)
+    ? `<div class="emptynote" style="margin-top:2px">Manual tracker: ${escapeHtml(AP_STATUS_LABELS[u.secondaryStage.code] || u.secondaryStage.label)} (reference only)</div>` : '';
   return `<div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc?escapeHtml(u.colorDesc):'Pending'}</span></div>
-    <div class="trow"><span>Stage</span><span class="d">${escapeHtml(stageLabel)}${u.advancePosted?'<span class="aptag">AP</span>':''}</span></div>
+    <div class="trow"><span>Stage</span><span class="d">${escapeHtml(stageLabel)}${u.advancePosted?'<span class="aptag">AP</span>':''}${manualNote}</span></div>
     <div class="trow"><span>Days in WIP</span><span class="d">${u.wipDays==null?'—':u.wipDays+' days'}</span></div>`;
 }
 function wireMilestoneTaps(container, vin){
@@ -2954,7 +2956,7 @@ function openDrawer(vin, sr){
       <button class="closebtn" id="closeBtn">&times;</button>
     </div>
     ${u.advancePosted ? `<div class="apbanner apbanner-col">
-      <div>&#9888; Advance Posted &mdash; SAP shows <strong>${escapeHtml(u.stage.label)}</strong> for invoicing only. Movement log (most recent first):</div>
+      <div>&#9888; Advance Posted &mdash; location follows the SAP upload (<strong>${escapeHtml(u.stage.label)}</strong>). Manual movement log, for reference only (most recent first):</div>
       <table class="apmovetable">
         <thead><tr><th>Date</th><th>Location</th><th>Set by</th>${canManageAdvancePosted()?'<th></th>':''}</tr></thead>
         <tbody>
@@ -3176,7 +3178,7 @@ async function setAdvancePosted(vins, flagged){
   if(currentDrawerUnit) renderDrawerRow(currentRowData);
 }
 document.getElementById('apMarkBtn').addEventListener('click', ()=>{
-  if(!confirm(`Mark ${apSelectedVins.size} unit(s) as Advance Posted? Their SAP status will be treated as invoicing-only until a real location is set.`)) return;
+  if(!confirm(`Mark ${apSelectedVins.size} unit(s) as Advance Posted? Location will still follow the SAP production upload; the manual movement log is reference only.`)) return;
   setAdvancePosted([...apSelectedVins], true);
 });
 document.getElementById('apUnmarkBtn').addEventListener('click', ()=>{
