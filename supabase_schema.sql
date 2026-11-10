@@ -203,6 +203,10 @@ alter table public.production_rows add column if not exists paint_start int;
 alter table public.production_rows add column if not exists tcf_start int;
 -- SAP "Material" (column A) = vehicle variant, e.g. LX3HEVCALISB
 alter table public.production_rows add column if not exists material text;
+-- Columns AI/AJ of the SAP sheet: "Advance" flag and the unit's actual
+-- physical status (e.g. "Packed", "Paint-IN") for advance-posted units.
+alter table public.production_rows add column if not exists advance_posting text;
+alter table public.production_rows add column if not exists advance_status text;
 -- Migration for databases created when batch was still the primary key:
 alter table public.production_rows add column if not exists id bigint generated always as identity;
 alter table public.production_rows drop constraint if exists production_rows_pkey;

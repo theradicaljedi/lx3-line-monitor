@@ -2088,7 +2088,7 @@ function computeWipDays(statusCode, dates){
 function applyAdvancePosted(units){
   units.forEach(u=>{
     const ap = u.vin ? ADVANCE_POSTED_CACHE[u.vin] : null;
-    u.advancePosted = !!ap;
+    u.advancePosted = !!ap || !!u.fileAdvance; // SAP sheet's own "Advance" column counts too
     const moves = (u.vin && ADVANCE_POSTED_MOVEMENTS[u.vin]) || [];
     u.movements = moves; // full log, most-recent-move first — the VIN card's movement table reads this
     const latest = moves[0] || null;
@@ -2305,10 +2305,11 @@ function stageBadgeHtml(u){
   // The SAP production upload is the source of truth for location. An
   // advance-posted unit keeps its small AP tag, and any manual-tracker
   // location is only mentioned in the hover text for reference.
+  const sap = u.fileAdvance && u.sapStage ? ` — SAP posting shows ${u.sapStage.label}; physical status from upload: ${u.advanceStatusText||''}` : '';
   const manual = u.advancePosted && u.secondaryStage
     ? ` — manual tracker says: ${AP_STATUS_LABELS[u.secondaryStage.code] || u.secondaryStage.label}` : '';
   const tag = u.advancePosted ? '<span class="aptag">AP</span>' : '';
-  const title = u.advancePosted ? ` title="Advance Posted${escapeHtml(manual)}"` : '';
+  const title = u.advancePosted ? ` title="Advance Posted${escapeHtml(sap + manual)}"` : '';
   return `<span class="badge" style="background:color-mix(in srgb, ${u.stage.color} 16%, transparent);color:${u.stage.color}"${title}>${u.stage.label}${tag}</span>`;
 }
 function checklistStateFor(u){
@@ -2775,8 +2776,10 @@ function metaRowsHtml(u){
   const swatch = u.colorCode ? `<span class="swatch" style="background:${COLOR_HEX[u.colorCode]||'#ccc'}"></span>` : '';
   const stage = effectiveStage(u);
   const stageLabel = AP_STATUS_LABELS[stage.code]||stage.label; // SAP upload location
-  const manualNote = (u.advancePosted && u.secondaryStage)
-    ? `<div class="emptynote" style="margin-top:2px">Manual tracker: ${escapeHtml(AP_STATUS_LABELS[u.secondaryStage.code] || u.secondaryStage.label)} (reference only)</div>` : '';
+  const sapNote = (u.fileAdvance && u.sapStage)
+    ? `<div class="emptynote" style="margin-top:2px">SAP posting: ${escapeHtml(u.sapStage.label)} (advance posted)</div>` : '';
+  const manualNote = sapNote + ((u.advancePosted && u.secondaryStage)
+    ? `<div class="emptynote" style="margin-top:2px">Manual tracker: ${escapeHtml(AP_STATUS_LABELS[u.secondaryStage.code] || u.secondaryStage.label)} (reference only)</div>` : '');
   return `<div class="trow"><span>Variant</span><span class="d">${escapeHtml(variantLabel(u.variant))}${u.variant && VARIANT_LABELS[u.variant] ? ` <span class="emptynote">${escapeHtml(u.variant)}</span>` : ''}</span></div>
     <div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc?escapeHtml(u.colorDesc):'Pending'}</span></div>
     <div class="trow"><span>Stage</span><span class="d">${escapeHtml(stageLabel)}${u.advancePosted?'<span class="aptag">AP</span>':''}${manualNote}</span></div>
@@ -2965,7 +2968,7 @@ function openDrawer(vin, sr){
       <button class="closebtn" id="closeBtn">&times;</button>
     </div>
     ${u.advancePosted ? `<div class="apbanner apbanner-col">
-      <div>&#9888; Advance Posted &mdash; location follows the SAP upload (<strong>${escapeHtml(u.stage.label)}</strong>). Manual movement log, for reference only (most recent first):</div>
+      <div>&#9888; Advance Posted &mdash; physical location <strong>${escapeHtml(u.stage.label)}</strong>${u.fileAdvance && u.sapStage ? ` (from the upload's Advance Status column; SAP posting shows ${escapeHtml(u.sapStage.label)})` : ''}. Manual movement log, for reference only (most recent first):</div>
       <table class="apmovetable">
         <thead><tr><th>Date</th><th>Location</th><th>Set by</th>${canManageAdvancePosted()?'<th></th>':''}</tr></thead>
         <tbody>
@@ -3968,7 +3971,7 @@ async function loadProductionFromSupabase(){
   data.sort((a,b)=>(a.batch||'').localeCompare(b.batch||''));
   return data.map((r,i)=>[i+1, r.vin, r.batch, r.color_code, r.color_desc, r.status_code,
     r.body_fin, r.paint_fin, r.tcf_fin, r.basic_insp, r.actual_insp, r.act_fin_insp, r.ustk,
-    r.body_start, r.paint_start, r.tcf_start, r.material]);
+    r.body_start, r.paint_start, r.tcf_start, r.material, r.advance_posting, r.advance_status]);
 }
 async function loadDefectsFromSupabase(){
   if(!sb) return null;
@@ -3982,13 +3985,47 @@ async function loadManualDefectsFromSupabase(){
   if(error){ console.error(error); return null; }
   return data;
 }
+// Advance-posted units: SAP status (column S/T) is invoicing-driven, so the
+// file's own "Advance Status" column (AJ) is the real physical location.
+const ADVANCE_STATUS_CODES = {
+  PACKED:'WAREHOUSE', UNPACKED:'WAREHOUSE', WAREHOUSE:'WAREHOUSE',
+  BODYIN:'1000', BODYOUT:'1010', PAINTIN:'2000', PAINTOUT:'2010',
+  TCFIN:'3000', TCFOUT:'3010', INSPECTIONIN:'4000', INSPECTIONOUT:'4010',
+  QCOK:'4010', BUSTOCK:'USTK', SOLD:'SOLD',
+};
+function advanceStatusCode(text){
+  if(!text) return null;
+  const key = String(text).toUpperCase().replace(/[^A-Z]/g,'');
+  return ADVANCE_STATUS_CODES[key] || matchStageCode(text) || null;
+}
+// How far along each physical stage is — SAP dates for stages beyond it are
+// just the advance-posting date, not real progress, so they're dropped.
+const STAGE_DATE_LEVEL = { WAREHOUSE:0, PLAN:0, '1000':1, '1010':2, '2000':3, '2010':4, '3000':5, '3010':6, '4000':7, '4010':8, USTK:9, SOLD:9 };
 function rebuildAllUnits(){
   const mapped = ROWS.map(r=>{
-    const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart,material] = r;
+    let [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart,material,advPosting,advStatus] = r;
+    const sapStatusCode = statusCode;
+    const fileAdvance = !!(advPosting && String(advPosting).trim());
+    const physical = fileAdvance ? advanceStatusCode(advStatus) : null;
+    if(physical){
+      statusCode = physical;
+      const lvl = STAGE_DATE_LEVEL[physical] ?? 9;
+      if(lvl < 1) bodyStart = null;
+      if(lvl < 2) bodyFin = null;
+      if(lvl < 3) paintStart = null;
+      if(lvl < 4) paintFin = null;
+      if(lvl < 5) tcfStart = null;
+      if(lvl < 6) tcfFin = null;
+      if(lvl < 7){ bi = null; ai = null; }
+      if(lvl < 8) af = null;
+      if(lvl < 9) us = null;
+    }
     const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
+    const sapStage = ALL_STAGES.find(s=>s.code===sapStatusCode) || null;
     const vinSuffix = vin ? vin.slice(-6) : null;
     const wipDays = vin ? computeWipDays(statusCode, {bodyStart,bodyFin,paintStart,paintFin,tcfStart,tcfFin,aiInsp:ai,afInsp:af}) : null;
     return {sr,vin,vinSuffix,batch,colorCode,colorDesc,statusCode,stage,
+      fileAdvance, advanceStatusText: advStatus || null, sapStatusCode, sapStage,
       variant: material || null,
       bodyStart:xl(bodyStart), bodyFin:xl(bodyFin),
       paintStart:xl(paintStart), paintFin:xl(paintFin),
@@ -4281,6 +4318,8 @@ wireUpload('uploadProduction', 'uploadProductionStatus', {
     return {
       batch: String(r[4]),
       material: r[0] ? String(r[0]).trim() : null, // variant code, e.g. LX3HEVCALISB
+      advance_posting: r[34] ? String(r[34]).trim() : null, // column AI, "Advance"
+      advance_status: r[35] ? String(r[35]).trim() : null,  // column AJ, actual physical status
       vin: r[7] || null,
       color_code: r[11] || null,
       color_desc: r[13] || null,
