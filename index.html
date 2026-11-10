@@ -3998,27 +3998,19 @@ function advanceStatusCode(text){
   const key = String(text).toUpperCase().replace(/[^A-Z]/g,'');
   return ADVANCE_STATUS_CODES[key] || matchStageCode(text) || null;
 }
-// How far along each physical stage is — SAP dates for stages beyond it are
-// just the advance-posting date, not real progress, so they're dropped.
-const STAGE_DATE_LEVEL = { WAREHOUSE:0, PLAN:0, '1000':1, '1010':2, '2000':3, '2010':4, '3000':5, '3010':6, '4000':7, '4010':8, USTK:9, SOLD:9 };
 function rebuildAllUnits(){
   const mapped = ROWS.map(r=>{
     let [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart,material,advPosting,advStatus] = r;
     const sapStatusCode = statusCode;
     const fileAdvance = !!(advPosting && String(advPosting).trim());
     const physical = fileAdvance ? advanceStatusCode(advStatus) : null;
-    if(physical){
-      statusCode = physical;
-      const lvl = STAGE_DATE_LEVEL[physical] ?? 9;
-      if(lvl < 1) bodyStart = null;
-      if(lvl < 2) bodyFin = null;
-      if(lvl < 3) paintStart = null;
-      if(lvl < 4) paintFin = null;
-      if(lvl < 5) tcfStart = null;
-      if(lvl < 6) tcfFin = null;
-      if(lvl < 7){ bi = null; ai = null; }
-      if(lvl < 8) af = null;
-      if(lvl < 9) us = null;
+    if(physical) statusCode = physical;
+    if(fileAdvance){
+      // SAP stamps EVERY stage date of an advance-posted unit with the
+      // posting date (e.g. all 26/27-Oct), which made the Production Report
+      // show hundreds of fake same-day completions. None are real, so drop
+      // them all; dates tapped manually on the VIN card still count.
+      bodyStart = bodyFin = paintStart = paintFin = tcfStart = tcfFin = bi = ai = af = us = null;
     }
     const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
     const sapStage = ALL_STAGES.find(s=>s.code===sapStatusCode) || null;
