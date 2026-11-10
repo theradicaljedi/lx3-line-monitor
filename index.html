@@ -85,7 +85,9 @@ body{background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans',system-ui
 .filebtn{position:relative;background:var(--accent);color:#fff;border-radius:20px;padding:6px 14px;font-size:12px;font-weight:600;cursor:pointer;overflow:hidden;display:inline-block}
 .filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
 
-.tabbar{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+.tabbar{display:flex;gap:6px;margin-bottom:16px;border-bottom:1px solid var(--line);flex-wrap:wrap;align-items:center}
+.variantpick{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--muted);padding-bottom:4px}
+.variantpick select{padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);font-size:12.5px;font-weight:600}
 .tabbtn{background:none;border:none;border-bottom:2px solid transparent;padding:9px 4px;margin-bottom:-1px;font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;font-family:'IBM Plex Sans',sans-serif}
 .tabbtn+.tabbtn{margin-left:14px}
 .tabbtn:hover{color:var(--ink)}
@@ -599,6 +601,9 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
     <button type="button" class="tabbtn" data-tab="report">Production Report</button>
     <button type="button" class="tabbtn" data-tab="analysis">Defect Analysis</button>
     <button type="button" class="tabbtn" data-tab="activity">Activity Log</button>
+    <label class="variantpick" title="Show one vehicle variant across every tab">Variant
+      <select id="variantFilter"><option value="all">All variants</option></select>
+    </label>
   </div>
 
   <div id="tabRoster">
@@ -627,6 +632,7 @@ button.citem-count:hover{background:var(--bad-soft);color:var(--bad)}
             <th id="apSelectAllHead" hidden><input type="checkbox" id="apSelectAll" title="Select all visible rows"></th>
             <th class="sortable" data-col="sr">S. No <span class="sortic" data-col="sr"></span></th>
             <th class="sortable" data-col="vin">VIN <span class="sortic" data-col="vin"></span></th>
+            <th class="sortable" data-col="variant">Variant <span class="sortic" data-col="variant"></span></th>
             <th class="sortable" data-col="color">Color <span class="sortic" data-col="color"></span></th>
             <th class="sortable" data-col="stage">Stage <span class="sortic" data-col="stage"></span></th>
             <th class="sortable" data-col="vq">Tester Line <span class="sortic" data-col="vq"></span></th>
@@ -2390,6 +2396,7 @@ function renderTable(){
     const keyFn = {
       sr: u=>u.sr,
       vin: u=>u.vin||'',
+      variant: u=>variantLabel(u.variant),
       color: u=>u.colorDesc||u.colorCode||'',
       stage: u=>stageOrder[sortCode(u)],
       vq: u=>vqTesterProgress(u),
@@ -2428,6 +2435,7 @@ function renderTable(){
       ${checkCell}
       <td>${i+1}</td>
       <td>${u.vin ? `<span class="vin">${escapeHtml(u.vin)}</span>` : `<span class="emptynote">not yet assigned</span>`}</td>
+      <td>${u.variant ? escapeHtml(variantLabel(u.variant)) : '<span class="emptynote">—</span>'}</td>
       <td>${swatch}${u.colorCode?escapeHtml(u.colorCode):'<span class="emptynote">pending</span>'}</td>
       <td>${stageBadgeHtml(u)}</td>
       <td>${vqMiniHtml(u)}</td>
@@ -2435,7 +2443,7 @@ function renderTable(){
       <td>${qupMiniHtml(u)}</td>
       <td>${wip}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="9"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
+  }).join('') || `<tr><td colspan="10"><div class="emptynote" style="padding:16px 0">No units match the current scope/filters.</div></td></tr>`;
   tbody.querySelectorAll('.apRowCheck').forEach(cb=>{
     cb.addEventListener('change', ()=>{
       if(cb.checked) apSelectedVins.add(cb.dataset.vin); else apSelectedVins.delete(cb.dataset.vin);
@@ -2769,7 +2777,8 @@ function metaRowsHtml(u){
   const stageLabel = AP_STATUS_LABELS[stage.code]||stage.label; // SAP upload location
   const manualNote = (u.advancePosted && u.secondaryStage)
     ? `<div class="emptynote" style="margin-top:2px">Manual tracker: ${escapeHtml(AP_STATUS_LABELS[u.secondaryStage.code] || u.secondaryStage.label)} (reference only)</div>` : '';
-  return `<div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc?escapeHtml(u.colorDesc):'Pending'}</span></div>
+  return `<div class="trow"><span>Variant</span><span class="d">${escapeHtml(variantLabel(u.variant))}${u.variant && VARIANT_LABELS[u.variant] ? ` <span class="emptynote">${escapeHtml(u.variant)}</span>` : ''}</span></div>
+    <div class="trow"><span>Color</span><span class="d">${swatch}${u.colorDesc?escapeHtml(u.colorDesc):'Pending'}</span></div>
     <div class="trow"><span>Stage</span><span class="d">${escapeHtml(stageLabel)}${u.advancePosted?'<span class="aptag">AP</span>':''}${manualNote}</span></div>
     <div class="trow"><span>Days in WIP</span><span class="d">${u.wipDays==null?'—':u.wipDays+' days'}</span></div>`;
 }
@@ -3423,6 +3432,7 @@ function renderRepeatOffendersTable(){
   });
 }
 document.getElementById('topDefectsCriticalOnly').addEventListener('change', ()=>renderAnalysis());
+document.getElementById('variantFilter').addEventListener('change', onVariantChange);
 
 // ---------- Excel export: one row per defect (VIN, station, defect, date) ----------
 function downloadDefectExcel(){
@@ -3431,15 +3441,16 @@ function downloadDefectExcel(){
   const vinOf = d => (UNIT_BY_SUFFIX.get(d[0])||{}).vin || d[0];
   const rows = [...DEFECTS].sort((a,b)=>
     vinOf(a).localeCompare(vinOf(b)) || (a[3]||0)-(b[3]||0) || String(a[1]).localeCompare(String(b[1])));
-  const header = ['S. No','VIN','Station','Defect observed','Date','Department','Severity'];
+  const variantOf = d => { const u = UNIT_BY_SUFFIX.get(d[0]); return u && u.variant ? variantLabel(u.variant) : ''; };
+  const header = ['S. No','VIN','Variant','Station','Defect observed','Date','Department','Severity'];
   const ws = XLSX.utils.aoa_to_sheet([header]);
   rows.forEach((d,i)=>{
     const r = i + 2;
-    XLSX.utils.sheet_add_aoa(ws, [[i+1, vinOf(d), d[1]||'', d[2]||'', '', d[4]||'', d[5]||'']], {origin: `A${r}`});
-    if(d[3]) ws[`E${r}`] = { t:'n', v:Number(d[3]), z:'dd-mmm-yyyy' }; // exact Excel serial — no timezone drift
+    XLSX.utils.sheet_add_aoa(ws, [[i+1, vinOf(d), variantOf(d), d[1]||'', d[2]||'', '', d[4]||'', d[5]||'']], {origin: `A${r}`});
+    if(d[3]) ws[`F${r}`] = { t:'n', v:Number(d[3]), z:'dd-mmm-yyyy' }; // exact Excel serial — no timezone drift
   });
-  ws['!cols'] = [{wch:6},{wch:20},{wch:30},{wch:48},{wch:13},{wch:18},{wch:10}];
-  ws['!autofilter'] = { ref: `A1:G${rows.length+1}` };
+  ws['!cols'] = [{wch:6},{wch:20},{wch:18},{wch:30},{wch:48},{wch:13},{wch:18},{wch:10}];
+  ws['!autofilter'] = { ref: `A1:H${rows.length+1}` };
   ws['!freeze'] = { xSplit:0, ySplit:1 };
 
   // Second sheet: one line per VIN with how many defects / which stations
@@ -3459,7 +3470,8 @@ function downloadDefectExcel(){
   XLSX.utils.book_append_sheet(wb, ws, 'Defects by VIN');
   XLSX.utils.book_append_sheet(wb, ws2, 'Summary by VIN');
   const stamp = new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb, `LX3_Defect_Report_${stamp}.xlsx`);
+  const vpart = selectedVariant === 'all' ? '' : '_' + variantLabel(selectedVariant).replace(/\s+/g,'_');
+  XLSX.writeFile(wb, `LX3_Defect_Report${vpart}_${stamp}.xlsx`);
   if(typeof logActivity === 'function' && currentSession) logActivity('defect_excel_export', `${rows.length} defects across ${Object.keys(byVin).length} units`);
 }
 document.getElementById('defectExcelBtn').addEventListener('click', downloadDefectExcel);
@@ -3956,7 +3968,7 @@ async function loadProductionFromSupabase(){
   data.sort((a,b)=>(a.batch||'').localeCompare(b.batch||''));
   return data.map((r,i)=>[i+1, r.vin, r.batch, r.color_code, r.color_desc, r.status_code,
     r.body_fin, r.paint_fin, r.tcf_fin, r.basic_insp, r.actual_insp, r.act_fin_insp, r.ustk,
-    r.body_start, r.paint_start, r.tcf_start]);
+    r.body_start, r.paint_start, r.tcf_start, r.material]);
 }
 async function loadDefectsFromSupabase(){
   if(!sb) return null;
@@ -3972,20 +3984,71 @@ async function loadManualDefectsFromSupabase(){
 }
 function rebuildAllUnits(){
   const mapped = ROWS.map(r=>{
-    const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart] = r;
+    const [sr,vin,batch,colorCode,colorDesc,statusCode,bodyFin,paintFin,tcfFin,bi,ai,af,us,bodyStart,paintStart,tcfStart,material] = r;
     const stage = ALL_STAGES.find(s=>s.code===statusCode) || ALL_STAGES[0];
     const vinSuffix = vin ? vin.slice(-6) : null;
     const wipDays = vin ? computeWipDays(statusCode, {bodyStart,bodyFin,paintStart,paintFin,tcfStart,tcfFin,aiInsp:ai,afInsp:af}) : null;
     return {sr,vin,vinSuffix,batch,colorCode,colorDesc,statusCode,stage,
+      variant: material || null,
       bodyStart:xl(bodyStart), bodyFin:xl(bodyFin),
       paintStart:xl(paintStart), paintFin:xl(paintFin),
       tcfStart:xl(tcfStart), tcfFin:xl(tcfFin),
       biInsp:xl(bi), aiInsp:xl(ai), afInsp:xl(af), ustk:xl(us), wipDays};
   });
+  // Variant filter applies here, at the data layer, so every tab (KPIs,
+  // Units, Production Report, Defect Analysis) follows the selection.
   ALL_UNITS.length = 0;
-  ALL_UNITS.push(...mapped);
+  ALL_UNITS.push(...(selectedVariant === 'all' ? mapped : mapped.filter(u=>u.variant === selectedVariant)));
   applyAdvancePosted(ALL_UNITS);
   rebuildUnitBySuffix();
+}
+
+// ---------- Vehicle variant (SAP Material code, production upload column A) ----------
+const VARIANT_LABELS = {
+  LX3HEVCAL3NB: 'Calligraphy Brown',
+  LX3HEVCALISB: 'Calligraphy Black',
+  LX3HEVSMTNNB: 'Smart Black',
+};
+function variantLabel(code){ return code ? (VARIANT_LABELS[code] || code) : '—'; }
+let selectedVariant = 'all';
+try{ selectedVariant = localStorage.getItem('lx3Variant') || 'all'; }catch(e){}
+// Full (unfiltered) defect data, kept so switching variant never needs a refetch.
+let MASTER_DEFECTS = null, MASTER_INSPECTED_VINS = null, MASTER_INSPECTION_ROWS = null;
+function snapshotDefectMasters(){
+  MASTER_DEFECTS = [...DEFECTS];
+  MASTER_INSPECTED_VINS = new Set(INSPECTED_VINS);
+  MASTER_INSPECTION_ROWS = [...ALL_INSPECTION_ROWS];
+}
+function applyVariantToDefects(){
+  if(!MASTER_DEFECTS) snapshotDefectMasters();
+  // Allowed VINs = every unit in the production data with the chosen variant
+  // (from ROWS, not ALL_UNITS, so this stays correct regardless of order).
+  const allowed = selectedVariant === 'all' ? null
+    : new Set(ROWS.filter(r=>r[16] === selectedVariant && r[1]).map(r=>String(r[1]).slice(-6)));
+  const keep = v => !allowed || allowed.has(v);
+  DEFECTS.length = 0; DEFECTS.push(...MASTER_DEFECTS.filter(d=>keep(d[0])));
+  INSPECTED_VINS.clear(); MASTER_INSPECTED_VINS.forEach(v=>{ if(keep(v)) INSPECTED_VINS.add(v); });
+  ALL_INSPECTION_ROWS.length = 0; ALL_INSPECTION_ROWS.push(...MASTER_INSPECTION_ROWS.filter(r=>keep(r.vin)));
+}
+function renderVariantOptions(){
+  const sel = document.getElementById('variantFilter');
+  const counts = {};
+  ROWS.forEach(r=>{ if(r[16]) counts[r[16]] = (counts[r[16]]||0) + 1; });
+  const codes = [...new Set([...Object.keys(VARIANT_LABELS), ...Object.keys(counts)])];
+  if(selectedVariant !== 'all' && !codes.includes(selectedVariant)) selectedVariant = 'all';
+  sel.innerHTML = `<option value="all">All variants (${ROWS.length})</option>` +
+    codes.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(variantLabel(c))} (${counts[c]||0})</option>`).join('');
+  sel.value = selectedVariant;
+}
+function onVariantChange(){
+  selectedVariant = document.getElementById('variantFilter').value;
+  try{ localStorage.setItem('lx3Variant', selectedVariant); }catch(e){}
+  rebuildAllUnits();
+  applyVariantToDefects();
+  renderStagePicker();
+  renderAll();
+  if(!tabReportEl.hidden) loadReport();
+  if(!tabAnalysisEl.hidden) renderAnalysis();
 }
 async function initData(){
   if(sb && !currentSession) return; // signed out — RLS blocks these reads anyway, and #mainContent is hidden
@@ -3993,6 +4056,7 @@ async function initData(){
   await Promise.all([loadAdvancePostedCache(), loadAdvancePostedMovements(), loadDefectAnnotations()]);
   if(prodRows){ // null only when not configured or the fetch failed — an empty array is authoritative
     ROWS.length = 0; ROWS.push(...prodRows);
+    renderVariantOptions(); // validates a remembered variant against this data before filtering
     rebuildAllUnits();
   } else {
     applyAdvancePosted(ALL_UNITS);
@@ -4015,7 +4079,10 @@ async function initData(){
       new Set(manualRows.map(r=>r.vin)).forEach(v=>INSPECTED_VINS.add(v));
       ALL_INSPECTION_ROWS.push(...manualRows.map(r=>({vin:r.vin, station:r.station, serial:r.defect_serial})));
     }
+    snapshotDefectMasters();
   }
+  renderVariantOptions();
+  applyVariantToDefects();
   renderStagePicker(); // its per-stage counts read ROWS directly — stale otherwise
   renderAll();
   if(!tabReportEl.hidden){ loadReport(); }
@@ -4213,6 +4280,7 @@ wireUpload('uploadProduction', 'uploadProductionStatus', {
     if(!r || !r[4]) return null; // no batch number — not a real data row
     return {
       batch: String(r[4]),
+      material: r[0] ? String(r[0]).trim() : null, // variant code, e.g. LX3HEVCALISB
       vin: r[7] || null,
       color_code: r[11] || null,
       color_desc: r[13] || null,
